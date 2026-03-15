@@ -1,29 +1,4388 @@
-# =============================================================
-# app.py  ·  Trading Suite Unified  ·  Satu file, semua fitur
-# Mode: 🚀 Breakout IDX | 📈 Open=Low | 🔍 Low Float | 🚨 Bid/Offer & Volatility | 🎯 SNIPER FX
-# =============================================================
+import streamlit as st
+import pandas as pd
+import plotly.graph_objects as go
+import plotly.express as px
+from datetime import datetime, timedelta
+import time
+import concurrent.futures
+import random
+import html
+
+# Import modules kita
+from data.stocks_list import STOCKS_LIST, get_sector
+from modules.data_fetcher import get_stock_data, get_current_price, get_fundamental_data
+from modules.open_low_scanner import scan_open_low_pattern, get_pattern_summary
+from modules.low_float_scanner import scan_low_float, get_low_float_summary
+from modules.ai_analyzer import analyze_pattern, analyze_low_float, predict_next_pattern, get_market_context
+from utils.exporters import export_to_excel, format_number
+
+# ========== DATA TINGKATAN SAHAM ==========
+BLUE_CHIP_STOCKS = [
+    'BBCA', 'BBRI', 'BMRI', 'BBNI', 'BTPS', 'BRIS',
+    'TLKM', 'ISAT', 'EXCL', 'TOWR', 'MTEL',
+    'UNVR', 'ICBP', 'INDF', 'KLBF', 'GGRM', 'HMSP',
+    'ASII', 'UNTR', 'ADRO', 'BYAN', 'PTBA', 'ITMG',
+    'CPIN', 'JPFA', 'MAIN', 'SIDO', 'ULTJ',
+    'SMGR', 'INTP', 'SMCB',
+    'PGAS', 'MEDC', 'ELSA',
+    'ANTM', 'INCO', 'MDKA', 'HRUM', 'BRPT', 'TPIA',
+    'WIKA', 'PTPP', 'WSKT', 'ADHI', 'JSMR',
+]
+
+SECOND_LINER_STOCKS = [
+    'AKRA', 'INKP', 'BUMI', 'PTRO', 'DOID', 'TINS', 'BRMS', 'DKFT',
+    'BMTR', 'MAPI', 'ERAA', 'ACES', 'MIKA', 'SILO', 'HEAL', 'PRAY',
+    'CLEO', 'ROTI', 'MYOR', 'GOOD', 'SKBM', 'SKLT', 'STTP',
+    'WSBP', 'PBSA', 'MTFN', 'BKSL', 'SMRA', 'CTRA', 'BSDE', 'PWON',
+    'LPKR', 'LPCK', 'DILD', 'RDTX', 'MREI', 'PZZA', 'MAPB', 'DMAS',
+    'LMPI', 'ARNA', 'TOTO', 'MLIA', 'INTD', 'IKAI', 'JECC', 'KBLI',
+    'KBLM', 'VOKS', 'UNIT', 'INAI', 'IMPC', 'ASGR', 'POWR', 'RAJA',
+    'PJAA', 'SAME', 'SCCO', 'SPMA', 'SRSN', 'TALF', 'TRST', 'TSPC',
+    'UNIC', 'YPAS',
+]
+
+FCA_STOCKS = ['COIN', 'CDIA']
+
+SHAREHOLDER_DATA = {
+    'CUAN': {
+        'pemegang': [
+            {'nama': 'BPJS Ketenagakerjaan', 'persen': 1.02, 'tipe': 'Institusi', 'catatan': 'Masuk Q4 2025', 'update': 'Feb 2026'},
+            {'nama': 'Vanguard', 'persen': 1.15, 'tipe': 'Asing', 'catatan': 'Nambah Jan 2026', 'update': 'Feb 2026'}
+        ],
+        'free_float': 13.73, 'total_shares': 12345678900,
+        'insider_activity': [
+            {'tanggal': '05 Mar 2026', 'insider': 'Direktur Utama', 'aksi': 'BELI', 'jumlah': 100000, 'harga': 15000},
+            {'tanggal': '20 Feb 2026', 'insider': 'Komisaris', 'aksi': 'BELI', 'jumlah': 50000, 'harga': 14800}
+        ]
+    },
+    'BRPT': {
+        'pemegang': [{'nama': 'BPJS Ketenagakerjaan', 'persen': 1.22, 'tipe': 'Institusi', 'catatan': 'Nambah Feb 2026', 'update': 'Feb 2026'}],
+        'free_float': 27.41, 'total_shares': 8765432100,
+        'insider_activity': [{'tanggal': '28 Feb 2026', 'insider': 'Komisaris', 'aksi': 'JUAL', 'jumlah': 75000, 'harga': 8500}]
+    },
+    'TPIA': {
+        'pemegang': [{'nama': 'GIC Singapore', 'persen': 3.45, 'tipe': 'Asing', 'catatan': 'Masuk Jan 2026', 'update': 'Feb 2026'}],
+        'free_float': 91.52, 'total_shares': 1122334455, 'insider_activity': []
+    },
+    'TRIM': {
+        'pemegang': [{'nama': 'BPJS Ketenagakerjaan', 'persen': 2.15, 'tipe': 'Institusi', 'catatan': 'Nambah Des 2025', 'update': 'Feb 2026'}],
+        'free_float': 63.17, 'total_shares': 9988776655, 'insider_activity': []
+    },
+    'MDKA': {
+        'pemegang': [
+            {'nama': 'BPJS Ketenagakerjaan', 'persen': 2.15, 'tipe': 'Institusi', 'catatan': 'Nambah', 'update': 'Feb 2026'},
+            {'nama': 'Pemerintah Norwegia', 'persen': 1.08, 'tipe': 'Asing', 'catatan': 'Masuk Q1 2026', 'update': 'Feb 2026'}
+        ],
+        'free_float': 89.31, 'total_shares': 8877665544,
+        'insider_activity': [{'tanggal': '15 Feb 2026', 'insider': 'Dirut', 'aksi': 'BELI', 'jumlah': 200000, 'harga': 2500}]
+    },
+    'BBCA': {
+        'pemegang': [
+            {'nama': 'BPJS Ketenagakerjaan', 'persen': 1.06, 'tipe': 'Institusi', 'catatan': 'Nambah', 'update': 'Feb 2026'},
+            {'nama': 'Vanguard', 'persen': 1.23, 'tipe': 'Asing', 'catatan': 'Nambah', 'update': 'Feb 2026'}
+        ],
+        'free_float': 95.67, 'total_shares': 123456789000,
+        'insider_activity': [
+            {'tanggal': '10 Mar 2026', 'insider': 'Presdir', 'aksi': 'BELI', 'jumlah': 1000000, 'harga': 10250},
+            {'tanggal': '25 Feb 2026', 'insider': 'Komisaris', 'aksi': 'BELI', 'jumlah': 500000, 'harga': 10100}
+        ]
+    },
+    'BBRI': {
+        'pemegang': [{'nama': 'BPJS Ketenagakerjaan', 'persen': 1.09, 'tipe': 'Institusi', 'catatan': 'Nambah', 'update': 'Feb 2026'}],
+        'free_float': 98.91, 'total_shares': 123456789000,
+        'insider_activity': [{'tanggal': '09 Mar 2026', 'insider': 'Dirut', 'aksi': 'JUAL', 'jumlah': 50000, 'harga': 5800}]
+    },
+    'KLBF': {
+        'pemegang': [
+            {'nama': 'Pemerintah Norwegia', 'persen': 1.30, 'tipe': 'Asing', 'catatan': 'Nambah', 'update': 'Feb 2026'},
+            {'nama': 'BPJS Ketenagakerjaan', 'persen': 2.01, 'tipe': 'Institusi', 'catatan': 'Nambah', 'update': 'Feb 2026'}
+        ],
+        'free_float': 96.69, 'total_shares': 5566778899, 'insider_activity': []
+    },
+    'ARTO': {
+        'pemegang': [{'nama': 'Pemerintah Singapura', 'persen': 8.28, 'tipe': 'Asing', 'catatan': 'Masuk besar', 'update': 'Feb 2026'}],
+        'free_float': 91.72, 'total_shares': 1122334455, 'insider_activity': []
+    },
+    'MTEL': {
+        'pemegang': [{'nama': 'Pemerintah Singapura', 'persen': 5.33, 'tipe': 'Asing', 'catatan': 'Nambah', 'update': 'Feb 2026'}],
+        'free_float': 94.67, 'total_shares': 2233445566, 'insider_activity': []
+    }
+}
+
+# ========== HELPER FUNCTIONS ==========
+
+def get_stock_level(stock_code):
+    if stock_code in BLUE_CHIP_STOCKS:
+        return '💎 Blue Chip'
+    elif stock_code in SECOND_LINER_STOCKS:
+        return '📈 Second Liner'
+    else:
+        return '🎯 Third Liner'
+
+def get_stocks_by_level(levels):
+    result = []
+    if 'Blue Chip' in levels:
+        result += BLUE_CHIP_STOCKS
+    if 'Second Liner' in levels:
+        result += SECOND_LINER_STOCKS
+    if 'Third Liner' in levels or len(levels) == 0:
+        third_liner = [s for s in STOCKS_LIST if s not in BLUE_CHIP_STOCKS and s not in SECOND_LINER_STOCKS]
+        result += third_liner
+    return list(set(result))
+
+def is_fca(stock_code):
+    return stock_code in FCA_STOCKS
+
+def get_free_float_holders(stock_code):
+    data = SHAREHOLDER_DATA.get(stock_code, {})
+    return data.get('pemegang', [])
+
+def get_free_float_value(stock_code):
+    data = SHAREHOLDER_DATA.get(stock_code, {})
+    return data.get('free_float', 100.0)
+
+def get_insider_activity(stock_code):
+    data = SHAREHOLDER_DATA.get(stock_code, {})
+    return data.get('insider_activity', [])
+
+def get_kategori_singkatan(kategori):
+    singkatan = {
+        'Ultra Low Float': 'ULF',
+        'Very Low Float': 'VLF',
+        'Low Float': 'LF',
+        'Moderate Low Float': 'MLF',
+        'Normal Float': 'NF'
+    }
+    return singkatan.get(kategori, kategori)
+
+def analyze_goreng_potential(free_float):
+    if free_float < 10:
+        return '🔥 UT'
+    elif free_float < 15:
+        return '🔥 ST'
+    elif free_float < 25:
+        return '⚡ TG'
+    elif free_float < 40:
+        return '📊 SD'
+    else:
+        return '📉 RD'
+
+def display_free_float_info(stock_code, free_float_value):
+    free_float_holders = get_free_float_holders(stock_code)
+    
+    h = f"""
+    <div style='background: linear-gradient(135deg, #0d1117 0%, #161b22 100%); 
+                padding: 18px; border-radius: 12px; margin: 12px 0;
+                border: 1px solid #30363d; box-shadow: 0 4px 24px rgba(0,0,0,0.4);'>
+        <div style='display: flex; align-items: center; gap: 10px; margin-bottom: 14px;'>
+            <span style='width: 3px; height: 20px; background: linear-gradient(180deg, #00d4aa, #0099ff); 
+                         border-radius: 2px; display: inline-block;'></span>
+            <h4 style='color: #e6edf3; margin: 0; font-size: 0.95rem; letter-spacing: 0.5px; font-family: "JetBrains Mono", monospace;'>
+                FREE FLOAT — {stock_code}
+            </h4>
+        </div>
+    """
+    
+    if is_fca(stock_code):
+        h += """
+        <div style='background: rgba(255,170,0,0.1); border: 1px solid rgba(255,170,0,0.3); 
+                    padding: 8px 12px; border-radius: 8px; margin-bottom: 12px;'>
+            <span style='color: #ffaa00; font-size: 0.82rem; font-weight: 600; letter-spacing: 1px;'>
+                ⚠ FCA — PAPAN PEMANTAUAN KHUSUS
+            </span>
+        </div>
+        """
+    
+    h += f"""
+    <div style='background: rgba(0, 212, 170, 0.08); border: 1px solid rgba(0, 212, 170, 0.2);
+                padding: 10px 14px; border-radius: 8px; margin-bottom: 14px;
+                display: flex; justify-content: space-between; align-items: center;'>
+        <span style='color: #8b949e; font-size: 0.82rem; font-family: "JetBrains Mono", monospace;'>FREE FLOAT</span>
+        <span style='color: #00d4aa; font-size: 1.4rem; font-weight: 700; font-family: "JetBrains Mono", monospace;'>{free_float_value:.2f}%</span>
+    </div>
+    """
+    
+    if free_float_holders:
+        h += "<p style='color: #8b949e; font-size: 0.78rem; margin: 0 0 8px 0; letter-spacing: 1px; text-transform: uppercase; font-family: \"JetBrains Mono\", monospace;'>Pemegang Institusi / Asing &gt;1%</p>"
+        total_dari_ff = 0
+        
+        for p in free_float_holders:
+            persen_dalam_ff = (p['persen'] / free_float_value) * 100
+            total_dari_ff += persen_dalam_ff
+            
+            color = '#4da6ff' if p['tipe'] == 'Institusi' else '#00d4aa'
+            icon = '🏛' if p['tipe'] == 'Institusi' else '🌐'
+            
+            h += f"""
+            <div style='display: flex; justify-content: space-between; align-items: center;
+                        background: rgba(255,255,255,0.03); padding: 9px 12px; border-radius: 7px; 
+                        margin: 5px 0; border-left: 2px solid {color};'>
+                <div>
+                    <span style='color: #c9d1d9; font-size: 0.85rem;'>{icon} {p['nama']}</span>
+                    <span style='color: #484f58; font-size: 0.75rem; margin-left: 8px;'>{p['catatan']}</span>
+                </div>
+                <span style='color: {color}; font-weight: 700; font-size: 0.95rem; font-family: "JetBrains Mono", monospace;'>{persen_dalam_ff:.1f}%</span>
+            </div>
+            """
+        
+        sisa_ritel = 100 - total_dari_ff
+        h += f"""
+        <div style='display: flex; justify-content: space-between; align-items: center;
+                    background: rgba(0,212,170,0.06); padding: 9px 12px; border-radius: 7px; 
+                    margin: 5px 0; border-left: 2px solid #00d4aa;'>
+            <span style='color: #c9d1d9; font-size: 0.85rem;'>👥 Ritel</span>
+            <span style='color: #00d4aa; font-weight: 700; font-size: 0.95rem; font-family: "JetBrains Mono", monospace;'>{sisa_ritel:.1f}%</span>
+        </div>
+        """
+    else:
+        h += """
+        <div style='text-align: center; padding: 16px; color: #484f58; font-size: 0.85rem;'>
+            Tidak ada institusi/asing &gt;1%
+        </div>
+        <div style='display: flex; justify-content: space-between; align-items: center;
+                    background: rgba(0,212,170,0.06); padding: 9px 12px; border-radius: 7px; border-left: 2px solid #00d4aa;'>
+            <span style='color: #c9d1d9; font-size: 0.85rem;'>👥 Ritel</span>
+            <span style='color: #00d4aa; font-weight: 700; font-family: "JetBrains Mono", monospace;'>100%</span>
+        </div>
+        """
+    
+    insider = get_insider_activity(stock_code)
+    if insider:
+        h += "<p style='color: #8b949e; font-size: 0.78rem; margin: 16px 0 8px 0; letter-spacing: 1px; text-transform: uppercase; font-family: \"JetBrains Mono\", monospace;'>Aktivitas Insider — 30 Hari</p>"
+        for a in insider:
+            is_buy = a['aksi'] == 'BELI'
+            color = '#00d4aa' if is_buy else '#ff5c5c'
+            icon = '▲' if is_buy else '▼'
+            h += f"""
+            <div style='display: flex; justify-content: space-between; align-items: center;
+                        background: rgba(255,255,255,0.03); padding: 9px 12px; border-radius: 7px; margin: 5px 0;'>
+                <div>
+                    <span style='color: #8b949e; font-size: 0.78rem; font-family: "JetBrains Mono", monospace;'>{a['tanggal']}</span>
+                    <span style='color: #484f58; font-size: 0.78rem; margin-left: 8px;'>{a['insider']}</span>
+                </div>
+                <span style='color: {color}; font-weight: 700; font-size: 0.85rem; font-family: "JetBrains Mono", monospace;'>
+                    {icon} {a['aksi']} {a['jumlah']:,}
+                </span>
+            </div>
+            """
+    
+    h += "</div>"
+    return h
+
+def create_download_buttons(data, prefix, key_suffix):
+    col1, col2 = st.columns(2)
+    with col1:
+        csv = data.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="⬇ Download CSV",
+            data=csv,
+            file_name=f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv",
+            use_container_width=True,
+            key=f"csv_{key_suffix}"
+        )
+    with col2:
+        excel = export_to_excel(data)
+        if excel:
+            st.download_button(
+                label="⬇ Download Excel",
+                data=excel,
+                file_name=f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key=f"excel_{key_suffix}"
+            )
+
+def scan_stocks_parallel(stocks_to_scan, scan_function, *args, **kwargs):
+    results = []
+    failed_stocks = []
+    
+    with st.spinner(f"Memproses {len(stocks_to_scan)} saham..."):
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_stock = {
+                executor.submit(scan_function, stock, *args, **kwargs): stock 
+                for stock in stocks_to_scan
+            }
+            
+            completed = 0
+            total = len(future_to_stock)
+            
+            for future in concurrent.futures.as_completed(future_to_stock):
+                stock = future_to_stock[future]
+                completed += 1
+                
+                try:
+                    result = future.result(timeout=30)
+                    if result:
+                        results.append(result)
+                except Exception as e:
+                    failed_stocks.append(stock)
+                
+                progress = completed / total
+                progress_bar.progress(progress)
+                status_text.markdown(
+                    f"<span style='color:#00d4aa; font-family:monospace; font-size:0.85rem;'>✓ {completed}/{total} diproses &nbsp;|&nbsp; ✗ {len(failed_stocks)} gagal</span>",
+                    unsafe_allow_html=True
+                )
+        
+        progress_bar.empty()
+        status_text.empty()
+        
+        if failed_stocks:
+            st.warning(f"{len(failed_stocks)} saham gagal: {', '.join(failed_stocks[:10])}" + 
+                      ("..." if len(failed_stocks) > 10 else ""))
+    
+    return results
+
+def reset_session_data():
+    keys_to_reset = ['scan_results', 'enhanced_df', 'watchlist_df', 'display_df', 'df_results']
+    for key in keys_to_reset:
+        if key in st.session_state:
+            del st.session_state[key]
+
+
+# ========== PAGE CONFIG ==========
+st.set_page_config(
+    page_title="RADAR AKSARA",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# ========== CUSTOM CSS — PREMIUM DARK TRADING TERMINAL ==========
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+    /* ── ROOT VARIABLES ── */
+    :root {
+        --bg-base:      #060a0f;
+        --bg-surface:   #0d1117;
+        --bg-elevated:  #161b22;
+        --bg-hover:     #1c2128;
+        --border:       #21262d;
+        --border-light: #30363d;
+        --text-primary: #e6edf3;
+        --text-secondary:#8b949e;
+        --text-muted:   #484f58;
+        --accent-green: #00d4aa;
+        --accent-blue:  #4da6ff;
+        --accent-gold:  #e3b341;
+        --accent-red:   #ff5c5c;
+        --accent-purple:#c084fc;
+        --glow-green:   rgba(0,212,170,0.15);
+        --glow-blue:    rgba(77,166,255,0.15);
+    }
+
+    /* ── GLOBAL RESET ── */
+    .stApp {
+        background-color: var(--bg-base) !important;
+        background-image: 
+            radial-gradient(ellipse 80% 50% at 50% -20%, rgba(0,212,170,0.04) 0%, transparent 60%),
+            radial-gradient(ellipse 60% 40% at 90% 80%, rgba(77,166,255,0.03) 0%, transparent 60%);
+        font-family: 'Space Grotesk', sans-serif;
+    }
+
+    /* ── SIDEBAR ── */
+    [data-testid="stSidebar"] {
+        background: var(--bg-surface) !important;
+        border-right: 1px solid var(--border) !important;
+    }
+    [data-testid="stSidebar"] .stMarkdown p,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] .stRadio label {
+        color: var(--text-secondary) !important;
+        font-family: 'Space Grotesk', sans-serif !important;
+        font-size: 0.85rem !important;
+    }
+    [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
+        color: var(--text-primary) !important;
+        font-family: 'Space Grotesk', sans-serif !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.5px;
+    }
+
+    /* ── MAIN TEXT ── */
+    .stApp h1, .stApp h2, .stApp h3, .stApp h4 {
+        font-family: 'Space Grotesk', sans-serif !important;
+        color: var(--text-primary) !important;
+    }
+    .stApp p, .stApp label, .stApp div {
+        font-family: 'Space Grotesk', sans-serif;
+        color: var(--text-secondary);
+    }
+
+    /* ── INPUTS ── */
+    .stSelectbox > div > div,
+    .stMultiselect > div > div,
+    .stNumberInput > div > div > input,
+    .stTextInput > div > div > input {
+        background: var(--bg-elevated) !important;
+        border: 1px solid var(--border-light) !important;
+        border-radius: 8px !important;
+        color: var(--text-primary) !important;
+        font-family: 'Space Grotesk', sans-serif !important;
+    }
+    .stSelectbox > div > div:hover,
+    .stMultiselect > div > div:hover {
+        border-color: var(--accent-green) !important;
+    }
+
+    /* ── SLIDER ── */
+    .stSlider > div > div > div {
+        background: var(--border-light) !important;
+    }
+    .stSlider > div > div > div > div {
+        background: var(--accent-green) !important;
+    }
+
+    /* ── PRIMARY BUTTON — SCAN ── */
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #00d4aa 0%, #0099cc 100%) !important;
+        color: #060a0f !important;
+        font-family: 'Space Grotesk', sans-serif !important;
+        font-weight: 700 !important;
+        font-size: 0.95rem !important;
+        letter-spacing: 1.5px !important;
+        text-transform: uppercase !important;
+        border: none !important;
+        border-radius: 10px !important;
+        padding: 14px 28px !important;
+        box-shadow: 0 0 24px rgba(0,212,170,0.3), 0 4px 12px rgba(0,0,0,0.4) !important;
+        transition: all 0.2s ease !important;
+    }
+    .stButton > button[kind="primary"]:hover {
+        box-shadow: 0 0 36px rgba(0,212,170,0.5), 0 8px 20px rgba(0,0,0,0.5) !important;
+        transform: translateY(-1px) !important;
+    }
+
+    /* ── SECONDARY BUTTONS ── */
+    .stButton > button {
+        background: var(--bg-elevated) !important;
+        color: var(--text-secondary) !important;
+        border: 1px solid var(--border-light) !important;
+        border-radius: 8px !important;
+        font-family: 'Space Grotesk', sans-serif !important;
+        font-size: 0.82rem !important;
+        transition: all 0.15s ease !important;
+    }
+    .stButton > button:hover {
+        border-color: var(--accent-green) !important;
+        color: var(--accent-green) !important;
+        background: rgba(0,212,170,0.05) !important;
+    }
+
+    /* ── DOWNLOAD BUTTONS ── */
+    .stDownloadButton > button {
+        background: var(--bg-elevated) !important;
+        color: var(--accent-blue) !important;
+        border: 1px solid rgba(77,166,255,0.3) !important;
+        border-radius: 8px !important;
+        font-family: 'JetBrains Mono', monospace !important;
+        font-size: 0.82rem !important;
+        letter-spacing: 0.5px !important;
+    }
+    .stDownloadButton > button:hover {
+        background: rgba(77,166,255,0.08) !important;
+        border-color: var(--accent-blue) !important;
+    }
+
+    /* ── DATAFRAME ── */
+    .stDataFrame {
+        border-radius: 12px !important;
+        overflow: hidden !important;
+        border: 1px solid var(--border) !important;
+    }
+    .stDataFrame iframe {
+        border-radius: 12px !important;
+    }
+
+    /* ── METRICS ── */
+    [data-testid="stMetric"] {
+        background: var(--bg-elevated) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 10px !important;
+        padding: 14px 16px !important;
+    }
+    [data-testid="stMetricLabel"] {
+        color: var(--text-muted) !important;
+        font-size: 0.75rem !important;
+        letter-spacing: 1px !important;
+        text-transform: uppercase !important;
+        font-family: 'JetBrains Mono', monospace !important;
+    }
+    [data-testid="stMetricValue"] {
+        color: var(--accent-green) !important;
+        font-family: 'JetBrains Mono', monospace !important;
+        font-size: 1.5rem !important;
+        font-weight: 700 !important;
+    }
+
+    /* ── EXPANDER ── */
+    .streamlit-expanderHeader {
+        background: var(--bg-elevated) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 10px !important;
+        color: var(--text-primary) !important;
+        font-family: 'Space Grotesk', sans-serif !important;
+        font-weight: 500 !important;
+        transition: all 0.15s ease !important;
+    }
+    .streamlit-expanderHeader:hover {
+        border-color: var(--accent-green) !important;
+        background: rgba(0,212,170,0.04) !important;
+    }
+    .streamlit-expanderContent {
+        background: var(--bg-surface) !important;
+        border: 1px solid var(--border) !important;
+        border-top: none !important;
+        border-radius: 0 0 10px 10px !important;
+    }
+
+    /* ── TABS ── */
+    .stTabs [data-baseweb="tab-list"] {
+        background: transparent !important;
+        gap: 4px !important;
+        border-bottom: 1px solid var(--border) !important;
+    }
+    .stTabs [data-baseweb="tab"] {
+        background: transparent !important;
+        color: var(--text-muted) !important;
+        border: none !important;
+        border-radius: 8px 8px 0 0 !important;
+        font-family: 'Space Grotesk', sans-serif !important;
+        font-size: 0.85rem !important;
+        padding: 8px 18px !important;
+    }
+    .stTabs [aria-selected="true"] {
+        background: rgba(0,212,170,0.08) !important;
+        color: var(--accent-green) !important;
+        border-bottom: 2px solid var(--accent-green) !important;
+    }
+
+    /* ── INFO / WARNING / SUCCESS ── */
+    .stInfo {
+        background: rgba(77,166,255,0.07) !important;
+        border: 1px solid rgba(77,166,255,0.2) !important;
+        border-radius: 8px !important;
+        color: var(--accent-blue) !important;
+        font-size: 0.85rem !important;
+    }
+    .stWarning {
+        background: rgba(227,179,65,0.07) !important;
+        border: 1px solid rgba(227,179,65,0.25) !important;
+        border-radius: 8px !important;
+        color: var(--accent-gold) !important;
+        font-size: 0.85rem !important;
+    }
+    .stSuccess {
+        background: rgba(0,212,170,0.07) !important;
+        border: 1px solid rgba(0,212,170,0.2) !important;
+        border-radius: 8px !important;
+    }
+
+    /* ── PROGRESS BAR ── */
+    .stProgress > div > div > div > div {
+        background: linear-gradient(90deg, var(--accent-green), var(--accent-blue)) !important;
+        border-radius: 4px !important;
+    }
+    .stProgress > div > div > div {
+        background: var(--bg-elevated) !important;
+        border-radius: 4px !important;
+    }
+
+    /* ── RADIO ── */
+    .stRadio > div {
+        gap: 8px !important;
+    }
+    .stRadio label {
+        background: var(--bg-elevated) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 8px !important;
+        padding: 8px 14px !important;
+        transition: all 0.15s !important;
+    }
+    .stRadio label:hover {
+        border-color: var(--accent-green) !important;
+        background: rgba(0,212,170,0.04) !important;
+    }
+
+    /* ── CHECKBOX ── */
+    .stCheckbox label {
+        color: var(--text-secondary) !important;
+        font-size: 0.85rem !important;
+    }
+
+    /* ── SCROLLBAR ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg-surface); }
+    ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+    /* ── DIVIDER ── */
+    hr { border-color: var(--border) !important; margin: 24px 0 !important; }
+
+    /* ── CAPTION ── */
+    .stCaption { color: var(--text-muted) !important; font-size: 0.78rem !important; font-family: 'JetBrains Mono', monospace !important; }
+
+    /* ── SPINNER ── */
+    .stSpinner > div { border-top-color: var(--accent-green) !important; }
+</style>
+""", unsafe_allow_html=True)
+
+
+# ========== HEADER ==========
+st.markdown("""
+<div style="display: flex; align-items: center; justify-content: space-between; 
+            padding: 28px 0 20px 0; border-bottom: 1px solid #21262d; margin-bottom: 28px;">
+    <div>
+        <div style="display: flex; align-items: center; gap: 14px;">
+            <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #00d4aa, #0099cc);
+                        border-radius: 10px; display: flex; align-items: center; justify-content: center;
+                        box-shadow: 0 0 20px rgba(0,212,170,0.35); font-size: 1.2rem;">📡</div>
+            <div>
+                <h1 style="color: #e6edf3; font-family: 'Space Grotesk', sans-serif; font-size: 1.7rem; 
+                           font-weight: 700; margin: 0; letter-spacing: -0.5px;">
+                    RADAR <span style="color: #00d4aa;">AKSARA</span>
+                </h1>
+                <p style="color: #484f58; font-size: 0.75rem; margin: 0; font-family: 'JetBrains Mono', monospace; letter-spacing: 1px;">
+                    IDX STOCK SCANNER  ·  OPEN=LOW  ·  LOW FLOAT  ·  AI ANALYSIS
+                </p>
+            </div>
+        </div>
+    </div>
+    <div style="text-align: right;">
+        <div style="display: inline-flex; align-items: center; gap: 6px; 
+                    background: rgba(0,212,170,0.08); border: 1px solid rgba(0,212,170,0.2);
+                    padding: 6px 14px; border-radius: 20px;">
+            <span style="width: 7px; height: 7px; background: #00d4aa; border-radius: 50%;
+                         display: inline-block; animation: pulse 2s infinite;"></span>
+            <span style="color: #00d4aa; font-size: 0.75rem; font-family: 'JetBrains Mono', monospace; letter-spacing: 1px;">LIVE</span>
+        </div>
+        <p style="color: #484f58; font-size: 0.72rem; margin: 6px 0 0 0; font-family: 'JetBrains Mono', monospace;">
+            IDX · BEI · KSEI
+        </p>
+    </div>
+</div>
+<style>
+@keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 6px #00d4aa; }
+    50% { opacity: 0.5; box-shadow: 0 0 12px #00d4aa; }
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+# ========== SIDEBAR ==========
+with st.sidebar:
+    st.markdown("""
+    <div style="padding: 16px 0 12px 0; border-bottom: 1px solid #21262d; margin-bottom: 16px;">
+        <p style="color: #484f58; font-size: 0.7rem; letter-spacing: 2px; text-transform: uppercase; 
+                  font-family: 'JetBrains Mono', monospace; margin: 0;">CONTROL PANEL</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    scan_mode = st.radio(
+        "**Mode Scanning**",
+        ["📈 Open = Low Scanner", "🔍 Low Float Scanner"],
+        index=0
+    )
+    
+    st.markdown("<div style='height: 1px; background: #21262d; margin: 16px 0;'></div>", unsafe_allow_html=True)
+    
+    st.markdown("""<p style="color: #484f58; font-size: 0.7rem; letter-spacing: 2px; text-transform: uppercase; 
+                  font-family: 'JetBrains Mono', monospace; margin: 0 0 12px 0;">FILTER SAHAM</p>""", unsafe_allow_html=True)
+    
+    filter_type = st.radio(
+        "Tipe Filter",
+        ["Semua Saham", "Pilih Manual", "Filter Tingkatan"],
+        index=0
+    )
+    
+    selected_stocks = []
+    selected_levels = []
+    
+    if filter_type == "Pilih Manual":
+        selected_stocks = st.multiselect("Pilih Saham", options=STOCKS_LIST, default=[])
+    elif filter_type == "Filter Tingkatan":
+        selected_levels = st.multiselect(
+            "Tingkatan Saham",
+            ["Blue Chip", "Second Liner", "Third Liner"],
+            default=["Blue Chip", "Second Liner", "Third Liner"],
+            help="Blue Chip: >Rp10T | Second Liner: Rp500M–Rp10T | Third Liner: <Rp1T"
+        )
+        if selected_levels:
+            stocks_count = len(get_stocks_by_level(selected_levels))
+            st.markdown(f"""
+            <div style="background: rgba(77,166,255,0.06); border: 1px solid rgba(77,166,255,0.15); 
+                        padding: 10px 12px; border-radius: 8px; margin-top: 8px;">
+                <span style="color: #4da6ff; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem;">
+                    📊 {stocks_count} saham terpilih
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    st.markdown("<div style='height: 1px; background: #21262d; margin: 16px 0;'></div>", unsafe_allow_html=True)
+    
+    if st.button("↺  Reset Data", use_container_width=True):
+        reset_session_data()
+        st.success("✓ Session direset")
+        st.rerun()
+    
+    st.markdown("<div style='height: 1px; background: #21262d; margin: 16px 0;'></div>", unsafe_allow_html=True)
+    
+    st.markdown("""
+    <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: #484f58; line-height: 2;">
+        <p style="margin:0; color: #8b949e; font-size: 0.7rem; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 10px;">Legenda</p>
+        <p style="margin: 3px 0;">💎 BC &nbsp;·&nbsp; Blue Chip >Rp10T</p>
+        <p style="margin: 3px 0;">📈 SL &nbsp;·&nbsp; Second Liner</p>
+        <p style="margin: 3px 0;">🎯 TL &nbsp;·&nbsp; Third Liner</p>
+        <p style="margin: 3px 0;">⚠️ FCA &nbsp;·&nbsp; Pemantauan Khusus</p>
+        <p style="margin: 3px 0;">🔥 UT/ST &nbsp;·&nbsp; Ultra/Sangat Tinggi</p>
+        <p style="margin: 3px 0;">⚡ TG &nbsp;·&nbsp; Tinggi &nbsp;·&nbsp; 📊 SD &nbsp;·&nbsp; Sedang</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("""
+    <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #21262d; 
+                text-align: center; color: #30363d; font-size: 0.7rem; font-family: 'JetBrains Mono', monospace;">
+        RADAR AKSARA &nbsp;·&nbsp; IDX SCANNER<br>
+        <span style="color: #484f58;">Data: Yahoo Finance · KSEI · BEI</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ========== OPEN=LOW SCANNER ==========
+if "Open = Low" in scan_mode:
+    
+    st.markdown("""
+    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 24px;">
+        <span style="width: 3px; height: 24px; background: linear-gradient(180deg, #00d4aa, transparent); 
+                     border-radius: 2px; display: inline-block;"></span>
+        <h2 style="color: #e6edf3; font-size: 1.1rem; font-weight: 600; margin: 0; letter-spacing: 0.3px; font-family: 'Space Grotesk', sans-serif;">
+            Scanner Open = Low &nbsp;<span style="color: #484f58; font-weight: 400; font-size: 0.85rem; font-family: 'JetBrains Mono', monospace;">+ KENAIKAN ≥5%</span>
+        </h2>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        periode = st.selectbox(
+            "Periode Analisis",
+            ["7 Hari", "14 Hari", "30 Hari", "90 Hari", "180 Hari", "365 Hari"],
+            index=2
+        )
+    with col2:
+        min_kenaikan = st.slider("Minimal Kenaikan (%)", 1, 20, 5)
+    with col3:
+        limit_saham = st.number_input("Limit Hasil", min_value=5, max_value=100, value=20)
+
+    st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+    
+    col_par1, col_par2 = st.columns([1, 2])
+    with col_par1:
+        use_parallel = st.checkbox("⚡ Parallel Scanning", value=True)
+    with col_par2:
+        st.markdown("""
+        <div style="background: rgba(0,212,170,0.05); border: 1px solid rgba(0,212,170,0.15); 
+                    padding: 8px 14px; border-radius: 8px; margin-top: 2px;">
+            <span style="color: #00d4aa; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;">
+                ⚡ Parallel mode &nbsp;·&nbsp; 5–10× lebih cepat
+            </span>
+        </div>
+        """, unsafe_allow_html=True)
+
+    periode_map = {"7 Hari": 7, "14 Hari": 14, "30 Hari": 30, "90 Hari": 90, "180 Hari": 180, "365 Hari": 365}
+    hari = periode_map[periode]
+
+    st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+
+    if st.button("🚀  MULAI SCANNING", type="primary", use_container_width=True):
+        reset_session_data()
+        
+        if filter_type == "Pilih Manual" and selected_stocks:
+            stocks_to_scan = selected_stocks
+        elif filter_type == "Filter Tingkatan" and selected_levels:
+            stocks_to_scan = get_stocks_by_level(selected_levels)
+        else:
+            stocks_to_scan = STOCKS_LIST
+        
+        estimasi_detik = len(stocks_to_scan) * (0.1 if use_parallel else 0.5)
+        
+        st.markdown(f"""
+        <div style="background: rgba(77,166,255,0.06); border: 1px solid rgba(77,166,255,0.15); 
+                    padding: 12px 16px; border-radius: 10px; margin: 12px 0;
+                    display: flex; align-items: center; gap: 12px;">
+            <span style="color: #4da6ff; font-size: 1.2rem;">⏳</span>
+            <div>
+                <span style="color: #4da6ff; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; font-weight: 600;">
+                    {len(stocks_to_scan)} SAHAM
+                </span>
+                <span style="color: #484f58; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; margin-left: 12px;">
+                    estimasi ~{estimasi_detik:.0f} detik
+                </span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        start_time = time.time()
+        
+        if use_parallel:
+            results = scan_stocks_parallel(
+                stocks_to_scan, scan_open_low_pattern,
+                periode_hari=hari, min_kenaikan=min_kenaikan
+            )
+        else:
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            results = []
+            for i, stock in enumerate(stocks_to_scan):
+                status_text.markdown(f"<span style='color:#8b949e; font-family:monospace; font-size:0.82rem;'>Memproses {stock}... ({i+1}/{len(stocks_to_scan)})</span>", unsafe_allow_html=True)
+                try:
+                    result = scan_open_low_pattern(stock, periode_hari=hari, min_kenaikan=min_kenaikan)
+                    if result:
+                        results.append(result)
+                except:
+                    pass
+                progress_bar.progress((i + 1) / len(stocks_to_scan))
+                time.sleep(0.3)
+            progress_bar.empty()
+            status_text.empty()
+        
+        total_time = time.time() - start_time
+        
+        if results:
+            df_results = pd.DataFrame(results)
+            df_results = df_results.sort_values('frekuensi', ascending=False).head(limit_saham)
+            
+            # ── SUCCESS CARD ──
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, #0d1f17 0%, #0d1a24 100%);
+                        border: 1px solid rgba(0,212,170,0.25); border-radius: 16px;
+                        padding: 28px 32px; margin: 24px 0 32px 0;
+                        box-shadow: 0 0 40px rgba(0,212,170,0.08), inset 0 1px 0 rgba(0,212,170,0.1);
+                        position: relative; overflow: hidden;">
+                <div style="position: absolute; top: -40px; right: -40px; width: 160px; height: 160px;
+                             background: radial-gradient(circle, rgba(0,212,170,0.08) 0%, transparent 70%);
+                             border-radius: 50%;"></div>
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px;">
+                    <div>
+                        <p style="color: #00d4aa; font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; 
+                                  letter-spacing: 2px; text-transform: uppercase; margin: 0 0 6px 0;">SCAN BERHASIL</p>
+                        <p style="color: #e6edf3; font-size: 2.8rem; font-weight: 700; margin: 0; line-height: 1; 
+                                  font-family: 'JetBrains Mono', monospace;">
+                            {len(df_results)}<span style="color: #00d4aa;">.</span>
+                        </p>
+                        <p style="color: #8b949e; font-size: 0.85rem; margin: 6px 0 0 0;">Saham pola Open = Low ditemukan</p>
+                    </div>
+                    <div style="display: flex; gap: 24px;">
+                        <div style="text-align: center; padding: 12px 20px; background: rgba(255,255,255,0.03); 
+                                    border-radius: 10px; border: 1px solid #21262d;">
+                            <p style="color: #484f58; font-size: 0.68rem; letter-spacing: 1.5px; text-transform: uppercase; 
+                                      font-family: 'JetBrains Mono', monospace; margin: 0 0 4px 0;">DURASI</p>
+                            <p style="color: #e6edf3; font-size: 1.4rem; font-weight: 700; margin: 0; 
+                                      font-family: 'JetBrains Mono', monospace;">{total_time:.0f}<span style="color: #484f58; font-size: 0.9rem;">s</span></p>
+                        </div>
+                        <div style="text-align: center; padding: 12px 20px; background: rgba(255,255,255,0.03); 
+                                    border-radius: 10px; border: 1px solid #21262d;">
+                            <p style="color: #484f58; font-size: 0.68rem; letter-spacing: 1.5px; text-transform: uppercase; 
+                                      font-family: 'JetBrains Mono', monospace; margin: 0 0 4px 0;">PERIODE</p>
+                            <p style="color: #e6edf3; font-size: 1.4rem; font-weight: 700; margin: 0; 
+                                      font-family: 'JetBrains Mono', monospace;">{hari}<span style="color: #484f58; font-size: 0.9rem;">d</span></p>
+                        </div>
+                        <div style="text-align: center; padding: 12px 20px; background: rgba(255,255,255,0.03); 
+                                    border-radius: 10px; border: 1px solid #21262d;">
+                            <p style="color: #484f58; font-size: 0.68rem; letter-spacing: 1.5px; text-transform: uppercase; 
+                                      font-family: 'JetBrains Mono', monospace; margin: 0 0 4px 0;">MIN GAIN</p>
+                            <p style="color: #e6edf3; font-size: 1.4rem; font-weight: 700; margin: 0; 
+                                      font-family: 'JetBrains Mono', monospace;">{min_kenaikan}<span style="color: #484f58; font-size: 0.9rem;">%</span></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # ── SECTION LABEL ──
+            st.markdown("""
+            <div style="display: flex; align-items: center; gap: 10px; margin: 24px 0 12px 0;">
+                <span style="width: 3px; height: 18px; background: #00d4aa; border-radius: 2px; display: inline-block;"></span>
+                <p style="color: #8b949e; font-size: 0.72rem; letter-spacing: 2px; text-transform: uppercase; 
+                          font-family: 'JetBrains Mono', monospace; margin: 0;">Hasil Scanning · Free Float · FCA · Tingkatan</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            enhanced_results = []
+            for _, row in df_results.iterrows():
+                saham = row['saham']
+                free_float = get_free_float_value(saham)
+                holders = get_free_float_holders(saham)
+                level = get_stock_level(saham)
+                
+                total_inst_asing = 0
+                for p in holders:
+                    persen_dalam_ff = (p['persen'] / free_float) * 100 if free_float > 0 else 0
+                    total_inst_asing += persen_dalam_ff
+                
+                sisa_ritel = 100 - total_inst_asing
+                potensi = analyze_goreng_potential(free_float)
+                fca_status = '⚠️' if is_fca(saham) else '—'
+                
+                enhanced_results.append({
+                    'Saham': saham,
+                    'Level': level,
+                    'Frek': row['frekuensi'],
+                    'Prob_Val': row['probabilitas'],
+                    'Prob': f"{row['probabilitas']:.0f}%",
+                    'Gain_Val': row['rata_rata_kenaikan'],
+                    'Gain': f"{row['rata_rata_kenaikan']:.0f}%",
+                    'FF_Val': free_float,
+                    'FF': f"{free_float:.0f}%",
+                    'Inst_Val': total_inst_asing,
+                    'Inst': f"{total_inst_asing:.0f}%",
+                    'Ritel_Val': sisa_ritel,
+                    'Ritel': f"{sisa_ritel:.0f}%",
+                    'FCA': fca_status,
+                    'Pot': potensi
+                })
+            
+            enhanced_df = pd.DataFrame(enhanced_results)
+            display_df = enhanced_df[['Saham', 'Level', 'Frek', 'Prob', 'Gain', 'FF', 'Inst', 'Ritel', 'FCA', 'Pot']]
+            st.dataframe(display_df, use_container_width=True, height=500, hide_index=True)
+            
+            st.session_state['scan_results'] = df_results
+            st.session_state['enhanced_df'] = enhanced_df
+            st.session_state['display_df'] = display_df
+            st.session_state['watchlist_df'] = None
+            
+            # ── CHART ──
+            st.markdown("""
+            <div style="display: flex; align-items: center; gap: 10px; margin: 28px 0 12px 0;">
+                <span style="width: 3px; height: 18px; background: #4da6ff; border-radius: 2px; display: inline-block;"></span>
+                <p style="color: #8b949e; font-size: 0.72rem; letter-spacing: 2px; text-transform: uppercase; 
+                          font-family: 'JetBrains Mono', monospace; margin: 0;">Top 10 · Frekuensi Tertinggi</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            top10_df = df_results.head(10).copy()
+            fig = go.Figure()
+            fig.add_trace(go.Bar(
+                x=top10_df['saham'],
+                y=top10_df['frekuensi'],
+                marker=dict(
+                    color=top10_df['probabilitas'].tolist(),
+                    colorscale='Teal',
+                    showscale=True,
+                    colorbar=dict(
+                        title=dict(
+                            text="Prob (%)",
+                            font=dict(color='#8b949e', size=10, family='JetBrains Mono')
+                        ),
+                        tickfont=dict(color='#8b949e', size=10, family='JetBrains Mono'),
+                        outlinecolor='#21262d',
+                        outlinewidth=1
+                    ),
+                    line=dict(width=0),
+                    opacity=0.9
+                ),
+                hovertemplate='<b>%{x}</b><br>Frekuensi: %{y}<br>Prob: %{marker.color:.1f}%<extra></extra>'
+            ))
+            fig.update_layout(
+                plot_bgcolor='#0d1117',
+                paper_bgcolor='#0d1117',
+                font=dict(family='JetBrains Mono', color='#8b949e', size=11),
+                xaxis=dict(
+                    categoryorder='array',
+                    categoryarray=top10_df['saham'].tolist(),
+                    gridcolor='#21262d',
+                    tickfont=dict(color='#8b949e'),
+                    title=dict(text='', font=dict(color='#484f58'))
+                ),
+                yaxis=dict(
+                    gridcolor='#21262d',
+                    tickfont=dict(color='#8b949e'),
+                    title=dict(text='Frekuensi', font=dict(color='#484f58', size=10))
+                ),
+                height=360,
+                margin=dict(l=40, r=60, t=20, b=40),
+                hoverlabel=dict(bgcolor='#161b22', bordercolor='#30363d', font=dict(color='#e6edf3'))
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            st.caption(f"Urutan: {' · '.join(top10_df['saham'].tolist())}")
+            
+            # ── AI ANALYSIS ──
+            st.markdown("""
+            <div style="display: flex; align-items: center; gap: 10px; margin: 32px 0 16px 0;">
+                <span style="width: 3px; height: 18px; background: #c084fc; border-radius: 2px; display: inline-block;"></span>
+                <p style="color: #8b949e; font-size: 0.72rem; letter-spacing: 2px; text-transform: uppercase; 
+                          font-family: 'JetBrains Mono', monospace; margin: 0;">Analisis AI · Top 5 Saham</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            for idx, (i, row) in enumerate(df_results.head(5).iterrows()):
+                analysis = analyze_pattern(row.to_dict())
+                level = get_stock_level(row['saham'])
+                
+                with st.expander(f"#{idx+1} &nbsp; {row['saham']} &nbsp;·&nbsp; {level} &nbsp;·&nbsp; Prob {row['probabilitas']:.1f}%"):
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Probabilitas", f"{row['probabilitas']:.1f}%")
+                    with col2:
+                        st.metric("Rata Gain", f"{row['rata_rata_kenaikan']:.1f}%")
+                    with col3:
+                        st.metric("Max Gain", f"{row['max_kenaikan']:.1f}%")
+                    with col4:
+                        st.metric("Frekuensi", f"{row['frekuensi']}x")
+                    
+                    st.markdown(f"""
+                    <div style="background: rgba(192,132,252,0.05); border: 1px solid rgba(192,132,252,0.15); 
+                                border-radius: 10px; padding: 14px 16px; margin: 12px 0;">
+                        <p style="color: #484f58; font-size: 0.68rem; letter-spacing: 2px; text-transform: uppercase;
+                                  font-family: 'JetBrains Mono', monospace; margin: 0 0 8px 0;">AI SUMMARY</p>
+                        <p style="color: #c9d1d9; font-size: 0.88rem; margin: 0; line-height: 1.6;">{analysis}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    free_float = get_free_float_value(row['saham'])
+                    st.markdown(display_free_float_info(row['saham'], free_float), unsafe_allow_html=True)
+            
+            # ── WATCHLIST ──
+            st.markdown("""
+            <div style="display: flex; align-items: center; gap: 10px; margin: 32px 0 16px 0;">
+                <span style="width: 3px; height: 18px; background: #e3b341; border-radius: 2px; display: inline-block;"></span>
+                <p style="color: #8b949e; font-size: 0.72rem; letter-spacing: 2px; text-transform: uppercase; 
+                          font-family: 'JetBrains Mono', monospace; margin: 0;">Watchlist Generator</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                min_gain_filter = st.slider("Minimal Gain Rata-rata (%)", 3, 10, 5, key="min_gain")
+            with col2:
+                top_n = st.number_input("Jumlah Saham", 5, 30, 15, key="top_n")
+            
+            if 'enhanced_df' in st.session_state:
+                df_watchlist = st.session_state['enhanced_df'][st.session_state['enhanced_df']['Gain_Val'] >= min_gain_filter].copy()
+            else:
+                df_watchlist = enhanced_df[enhanced_df['Gain_Val'] >= min_gain_filter].copy()
+            
+            if len(df_watchlist) > 0:
+                max_prob = df_watchlist['Prob_Val'].max()
+                max_gain = df_watchlist['Gain_Val'].max()
+                
+                if max_prob > 0 and max_gain > 0:
+                    df_watchlist['skor'] = (
+                        (df_watchlist['Prob_Val'] / max_prob) * 50 +
+                        (df_watchlist['Gain_Val'] / max_gain) * 50
+                    )
+                    df_watchlist = df_watchlist.nlargest(top_n, 'skor')
+                
+                st.markdown(f"""
+                <div style="background: linear-gradient(135deg, #0f1a0f 0%, #0a1520 100%);
+                            border: 1px solid rgba(227,179,65,0.2); border-radius: 14px;
+                            padding: 20px 24px; margin: 16px 0 20px 0;
+                            box-shadow: 0 0 30px rgba(227,179,65,0.05);">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <p style="color: #e3b341; font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; 
+                                      letter-spacing: 2px; text-transform: uppercase; margin: 0 0 4px 0;">WATCHLIST TRADING</p>
+                            <p style="color: #e6edf3; font-size: 1rem; font-weight: 600; margin: 0; font-family: 'Space Grotesk', sans-serif;">
+                                {datetime.now().strftime('%d %B %Y')}
+                            </p>
+                        </div>
+                        <div style="background: rgba(227,179,65,0.1); border: 1px solid rgba(227,179,65,0.2); 
+                                    padding: 8px 16px; border-radius: 8px;">
+                            <span style="color: #e3b341; font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; font-weight: 600;">
+                                ⚡ PANTAU 15 MENIT PERTAMA
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                watchlist_data = []
+                for i, (idx, row) in enumerate(df_watchlist.iterrows()):
+                    if row['Prob_Val'] >= 20 and row['Gain_Val'] >= 7:
+                        rekom = "🔥 PRIORITAS"
+                    elif row['Prob_Val'] >= 15 and row['Gain_Val'] >= 5:
+                        rekom = "⚡ LAYAK"
+                    else:
+                        rekom = "📌 PANTAU"
+                    
+                    level_singkat = {'💎 Blue Chip': 'BC', '📈 Second Liner': 'SL', '🎯 Third Liner': 'TL'}.get(row['Level'], '')
+                    
+                    watchlist_data.append({
+                        "Rank": i + 1,
+                        "Saham": row['Saham'],
+                        "Lvl": level_singkat,
+                        "Prob": row['Prob'],
+                        "Gain": row['Gain'],
+                        "FF": row['FF'],
+                        "FCA": row['FCA'],
+                        "Pot": row['Pot'],
+                        "Rekom": rekom
+                    })
+                
+                watchlist_df = pd.DataFrame(watchlist_data)
+                st.session_state['watchlist_df'] = watchlist_df
+                st.dataframe(watchlist_df, use_container_width=True, hide_index=True, height=400)
+                
+                # ── EXPORT ──
+                st.markdown("""
+                <div style="display: flex; align-items: center; gap: 10px; margin: 28px 0 12px 0;">
+                    <span style="width: 3px; height: 18px; background: #4da6ff; border-radius: 2px; display: inline-block;"></span>
+                    <p style="color: #8b949e; font-size: 0.72rem; letter-spacing: 2px; text-transform: uppercase; 
+                              font-family: 'JetBrains Mono', monospace; margin: 0;">Export Data</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                tab_exp1, tab_exp2 = st.tabs(["📋 Watchlist", "📊 Hasil Scanning"])
+                
+                with tab_exp1:
+                    if 'watchlist_df' in st.session_state and st.session_state['watchlist_df'] is not None:
+                        create_download_buttons(st.session_state['watchlist_df'], "watchlist", "watchlist_tab")
+                
+                with tab_exp2:
+                    if 'display_df' in st.session_state:
+                        create_download_buttons(st.session_state['display_df'], "scan", "scan_tab")
+            
+            else:
+                st.warning(f"Tidak ada saham dengan gain minimal {min_gain_filter}%")
+        
+        else:
+            st.markdown("""
+            <div style="background: rgba(255,92,92,0.06); border: 1px solid rgba(255,92,92,0.2); 
+                        border-radius: 12px; padding: 24px; text-align: center; margin: 16px 0;">
+                <p style="color: #ff5c5c; font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; margin: 0;">
+                    ⚠ &nbsp; Tidak ditemukan saham dengan kriteria Open = Low
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+
+# ========== LOW FLOAT SCANNER ==========
+elif "Low Float" in scan_mode:
+    
+    st.markdown("""
+    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 24px;">
+        <span style="width: 3px; height: 24px; background: linear-gradient(180deg, #4da6ff, transparent); 
+                     border-radius: 2px; display: inline-block;"></span>
+        <h2 style="color: #e6edf3; font-size: 1.1rem; font-weight: 600; margin: 0; letter-spacing: 0.3px; font-family: 'Space Grotesk', sans-serif;">
+            Scanner Low Float &nbsp;<span style="color: #484f58; font-weight: 400; font-size: 0.85rem; font-family: 'JetBrains Mono', monospace;">+ FREE FLOAT + FCA</span>
+        </h2>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        max_ff = st.slider("Maks Free Float (%)", 1, 50, 20)
+    with col2:
+        min_vol = st.number_input("Min Volume", min_value=0, value=0, step=100000)
+    
+    st.markdown("""<p style="color: #484f58; font-size: 0.7rem; letter-spacing: 2px; text-transform: uppercase; 
+                  font-family: 'JetBrains Mono', monospace; margin: 16px 0 10px 0;">FILTER TINGKATAN</p>""", unsafe_allow_html=True)
+    
+    col_lvl1, col_lvl2, col_lvl3 = st.columns(3)
+    with col_lvl1:
+        scan_blue = st.checkbox("💎 Blue Chip", value=True)
+    with col_lvl2:
+        scan_second = st.checkbox("📈 Second Liner", value=True)
+    with col_lvl3:
+        scan_third = st.checkbox("🎯 Third Liner", value=True)
+    
+    col_par1, col_par2 = st.columns([1, 2])
+    with col_par1:
+        use_parallel = st.checkbox("⚡ Parallel Scanning", value=True)
+    
+    st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+    
+    if st.button("🚀  SCAN LOW FLOAT", type="primary", use_container_width=True):
+        reset_session_data()
+        
+        selected_levels = []
+        if scan_blue: selected_levels.append('Blue Chip')
+        if scan_second: selected_levels.append('Second Liner')
+        if scan_third: selected_levels.append('Third Liner')
+        
+        if selected_stocks:
+            stocks_to_scan = selected_stocks
+        else:
+            stocks_to_scan = get_stocks_by_level(selected_levels) if selected_levels else STOCKS_LIST
+        
+        start_time = time.time()
+        
+        if use_parallel:
+            results = scan_stocks_parallel(stocks_to_scan, scan_low_float, max_public_float=max_ff, min_volume=min_vol)
+        else:
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            results = []
+            for i, stock in enumerate(stocks_to_scan):
+                status_text.markdown(f"<span style='color:#8b949e; font-family:monospace; font-size:0.82rem;'>Memproses {stock}... ({i+1}/{len(stocks_to_scan)})</span>", unsafe_allow_html=True)
+                try:
+                    result = scan_low_float([stock], max_ff, min_vol)
+                    if result: results.extend(result)
+                except: pass
+                progress_bar.progress((i + 1) / len(stocks_to_scan))
+                time.sleep(0.3)
+            progress_bar.empty()
+            status_text.empty()
+        
+        total_time = time.time() - start_time
+        
+        if results:
+            df_results = pd.DataFrame(results)
+            
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, #0d1a24 0%, #0d1f1a 100%);
+                        border: 1px solid rgba(77,166,255,0.2); border-radius: 16px;
+                        padding: 24px 28px; margin: 20px 0 28px 0;">
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+                    <div>
+                        <p style="color: #4da6ff; font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; 
+                                  letter-spacing: 2px; text-transform: uppercase; margin: 0 0 6px 0;">SCAN BERHASIL</p>
+                        <p style="color: #e6edf3; font-size: 2.5rem; font-weight: 700; margin: 0; 
+                                  font-family: 'JetBrains Mono', monospace; line-height: 1;">{len(df_results)}<span style="color: #4da6ff;">.</span></p>
+                        <p style="color: #8b949e; font-size: 0.82rem; margin: 6px 0 0 0;">Saham Low Float &lt; {max_ff}%</p>
+                    </div>
+                    <div style="text-align: center; padding: 12px 20px; background: rgba(255,255,255,0.03); 
+                                border-radius: 10px; border: 1px solid #21262d;">
+                        <p style="color: #484f58; font-size: 0.68rem; letter-spacing: 1.5px; text-transform: uppercase; 
+                                  font-family: 'JetBrains Mono', monospace; margin: 0 0 4px 0;">DURASI</p>
+                        <p style="color: #e6edf3; font-size: 1.4rem; font-weight: 700; margin: 0; 
+                                  font-family: 'JetBrains Mono', monospace;">{total_time:.0f}<span style="color: #484f58; font-size: 0.9rem;">s</span></p>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.markdown("""
+            <div style="display: flex; align-items: center; gap: 10px; margin: 0 0 12px 0;">
+                <span style="width: 3px; height: 18px; background: #4da6ff; border-radius: 2px; display: inline-block;"></span>
+                <p style="color: #8b949e; font-size: 0.72rem; letter-spacing: 2px; text-transform: uppercase; 
+                          font-family: 'JetBrains Mono', monospace; margin: 0;">Hasil · Free Float · FCA</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            enriched_results = []
+            for _, row in df_results.iterrows():
+                saham = row['saham']
+                free_float = get_free_float_value(saham)
+                kategori_singkat = get_kategori_singkatan(row['category'])
+                potensi = analyze_goreng_potential(free_float)
+                fca_status = '⚠️' if is_fca(saham) else '—'
+                level_singkat = {'💎 Blue Chip': 'BC', '📈 Second Liner': 'SL', '🎯 Third Liner': 'TL'}.get(get_stock_level(saham), '')
+                
+                holders = get_free_float_holders(saham)
+                total_inst_asing = sum((p['persen'] / free_float) * 100 for p in holders if free_float > 0)
+                sisa_ritel = 100 - total_inst_asing
+                
+                enriched_results.append({
+                    'Saham': saham, 'Lvl': level_singkat,
+                    'FF': f"{free_float:.0f}%", 'Kat': kategori_singkat,
+                    'Vol(M)': f"{row['volume_avg']/1e6:.1f}", 'Volat': f"{row['volatility']:.0f}%",
+                    'Inst': f"{total_inst_asing:.0f}%", 'Ritel': f"{sisa_ritel:.0f}%",
+                    'FCA': fca_status, 'Pot': potensi
+                })
+            
+            enriched_df = pd.DataFrame(enriched_results)
+            st.dataframe(enriched_df, use_container_width=True, height=500, hide_index=True)
+            
+            st.session_state['low_float_results'] = df_results
+            st.session_state['low_float_enriched'] = enriched_df
+            
+            st.markdown("""
+            <div style="display: flex; align-items: center; gap: 10px; margin: 28px 0 12px 0;">
+                <span style="width: 3px; height: 18px; background: #00d4aa; border-radius: 2px; display: inline-block;"></span>
+                <p style="color: #8b949e; font-size: 0.72rem; letter-spacing: 2px; text-transform: uppercase; 
+                          font-family: 'JetBrains Mono', monospace; margin: 0;">Detail Free Float · Top 5</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            for _, row in df_results.head(5).iterrows():
+                free_float = get_free_float_value(row['saham'])
+                with st.expander(f"{row['saham']}  ·  {get_stock_level(row['saham'])}  ·  FF {free_float:.0f}%"):
+                    st.markdown(display_free_float_info(row['saham'], free_float), unsafe_allow_html=True)
+            
+            # Charts
+            st.markdown("""
+            <div style="display: flex; align-items: center; gap: 10px; margin: 28px 0 12px 0;">
+                <span style="width: 3px; height: 18px; background: #e3b341; border-radius: 2px; display: inline-block;"></span>
+                <p style="color: #8b949e; font-size: 0.72rem; letter-spacing: 2px; text-transform: uppercase; 
+                          font-family: 'JetBrains Mono', monospace; margin: 0;">Distribusi & Analitik</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                counts = df_results['category'].value_counts()
+                fig = go.Figure(go.Pie(
+                    labels=counts.index,
+                    values=counts.values,
+                    hole=0.55,
+                    marker=dict(
+                        colors=['#00d4aa', '#0099cc', '#4da6ff', '#c084fc', '#e3b341'],
+                        line=dict(color='#0d1117', width=2)
+                    ),
+                    textfont=dict(color='#e6edf3', family='JetBrains Mono', size=10)
+                ))
+                fig.update_layout(
+                    plot_bgcolor='#0d1117', paper_bgcolor='#0d1117',
+                    font=dict(color='#8b949e', family='JetBrains Mono', size=10),
+                    legend=dict(font=dict(color='#8b949e', size=9)),
+                    title=dict(text='Kategori Float', font=dict(color='#8b949e', size=11), x=0.5),
+                    height=300, margin=dict(l=10, r=10, t=40, b=10)
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with col2:
+                fig = go.Figure()
+                vol_max = df_results['volume_avg'].max()
+                marker_sizes = (df_results['volume_avg'] / vol_max * 20 + 5).tolist() if vol_max > 0 else [8] * len(df_results)
+                fig.add_trace(go.Scatter(
+                    x=df_results['public_float'].tolist(),
+                    y=df_results['volatility'].tolist(),
+                    mode='markers',
+                    marker=dict(
+                        size=marker_sizes,
+                        color=df_results['volatility'].tolist(),
+                        colorscale='Teal',
+                        opacity=0.8,
+                        line=dict(width=0)
+                    ),
+                    text=df_results['saham'].tolist(),
+                    hovertemplate='<b>%{text}</b><br>Float: %{x:.1f}%<br>Volatilitas: %{y:.1f}%<extra></extra>'
+                ))
+                fig.update_layout(
+                    plot_bgcolor='#0d1117', paper_bgcolor='#0d1117',
+                    font=dict(color='#8b949e', family='JetBrains Mono', size=10),
+                    xaxis=dict(gridcolor='#21262d', title=dict(text='Free Float (%)', font=dict(color='#484f58', size=10))),
+                    yaxis=dict(gridcolor='#21262d', title=dict(text='Volatilitas (%)', font=dict(color='#484f58', size=10))),
+                    title=dict(text='FF vs Volatilitas', font=dict(color='#8b949e', size=11), x=0.5),
+                    height=300, margin=dict(l=50, r=20, t=40, b=50),
+                    hoverlabel=dict(bgcolor='#161b22', bordercolor='#30363d', font=dict(color='#e6edf3'))
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            
+            # Export
+            st.markdown("""
+            <div style="display: flex; align-items: center; gap: 10px; margin: 28px 0 12px 0;">
+                <span style="width: 3px; height: 18px; background: #4da6ff; border-radius: 2px; display: inline-block;"></span>
+                <p style="color: #8b949e; font-size: 0.72rem; letter-spacing: 2px; text-transform: uppercase; 
+                          font-family: 'JetBrains Mono', monospace; margin: 0;">Export Data</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            tab_exp1, tab_exp2 = st.tabs(["📊 Hasil Low Float", "📋 Info"])
+            with tab_exp1:
+                create_download_buttons(
+                    st.session_state.get('low_float_enriched', enriched_df),
+                    "low_float", "low_float_tab"
+                )
+            with tab_exp2:
+                st.info("Gunakan hasil di atas untuk analisis lebih lanjut bro!")
+        
+        else:
+            st.markdown("""
+            <div style="background: rgba(255,92,92,0.06); border: 1px solid rgba(255,92,92,0.2); 
+                        border-radius: 12px; padding: 24px; text-align: center; margin: 16px 0;">
+                <p style="color: #ff5c5c; font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; margin: 0;">
+                    ⚠ &nbsp; Tidak ditemukan saham low float
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+
+# ========== FOOTER ==========
+st.markdown("""
+<div style="border-top: 1px solid #21262d; margin-top: 48px; padding-top: 20px; padding-bottom: 24px;
+            display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 12px;">
+    <div>
+        <p style="color: #30363d; font-size: 0.7rem; font-family: 'JetBrains Mono', monospace; 
+                  letter-spacing: 0.5px; margin: 0 0 4px 0;">
+            ⚠ &nbsp; Data bersifat edukatif, bukan rekomendasi investasi
+        </p>
+        <p style="color: #30363d; font-size: 0.7rem; font-family: 'JetBrains Mono', monospace; margin: 0;">
+            BC=Blue Chip &nbsp;·&nbsp; SL=Second Liner &nbsp;·&nbsp; TL=Third Liner &nbsp;·&nbsp; FF=Free Float &nbsp;·&nbsp; FCA=Full Call Auction
+        </p>
+    </div>
+    <div style="text-align: right;">
+        <p style="color: #30363d; font-size: 0.7rem; font-family: 'JetBrains Mono', monospace; margin: 0;">
+            RADAR AKSARA &nbsp;·&nbsp; IDX Scanner &nbsp;·&nbsp; Data: Yahoo Finance · KSEI · BEI
+        </p>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+
+
+# ============================================================
+# app.py — Stock Breakout Detector (FULL FEATURES)
+# Fitur: Scanner · Backtest · Pattern Recognition · AI Confidence
+#         News Sentiment · WhatsApp · Leaderboard · Watchlist · Portfolio
+# ============================================================
+
 import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import plotly.express as px
+import pandas as pd
+import time
+from datetime import datetime
+
+from scanner          import scan_all_stocks, score_stock
+from risk_manager     import get_full_trade_plan
+from backtester       import run_backtest, run_multi_backtest, create_backtest_chart
+from scheduler        import get_market_status, is_market_open
+from data_fetcher     import fetch_stock_data
+from pattern_recognition import analyze_patterns
+from ml_confidence    import predict_confidence, SKLEARN_AVAILABLE
+from news_sentiment   import analyze_news_sentiment
+from watchlist        import (get_watchlist, add_to_watchlist, remove_from_watchlist,
+                               get_portfolio, get_portfolio_summary, add_position,
+                               close_position, get_portfolio_stats, get_trade_history,
+                               update_watchlist_prices)
+from leaderboard      import (record_scan_results, get_weekly_leaderboard,
+                               get_leaderboard_dataframe, get_all_weeks,
+                               get_multi_week_comparison)
+from chart_upgrade    import create_upgraded_chart, detect_trendline, add_fibonacci_levels
+from indicators       import add_advanced_indicators, get_adx_signal, get_mfi_signal
+from sector_data      import SECTOR_DATA
+from bandarmologi     import (analyze_bandarmologi, calculate_cmf, calculate_ad_line,
+                               calculate_vpt, calculate_obv, calculate_vwap)
+
+# ─── Page Config ────────────────────────────────────────────
+st.set_page_config(
+    page_title = "📈 Stock Breakout Detector Pro",
+    page_icon  = "🔥",
+    layout     = "wide",
+    initial_sidebar_state = "expanded"
+)
+
+# ─── Global CSS ─────────────────────────────────────────────
+st.markdown("""
+<style>
+    .stApp { background-color: #0d1117; color: #e6edf3; }
+    .metric-box {
+        background: #161b22; border: 1px solid #30363d;
+        border-radius: 10px; padding: 14px; text-align: center;
+        margin-bottom: 8px;
+    }
+    .info-row {
+        display:flex; justify-content:space-between;
+        padding:5px 0; border-bottom:1px solid #21262d;
+    }
+    .badge {
+        padding: 2px 10px; border-radius: 12px;
+        font-size: 0.78rem; font-weight: bold;
+    }
+    .ai-box {
+        background: linear-gradient(135deg, #1a1f35, #0d1117);
+        border: 1px solid #1f6feb; border-radius: 10px; padding: 14px;
+    }
+    .news-box {
+        background: #161b22; border: 1px solid #30363d;
+        border-radius: 8px; padding: 12px; margin-bottom: 8px;
+    }
+    .pattern-box {
+        background: linear-gradient(135deg, #1a2535, #0d1117);
+        border: 1px solid #388bfd; border-radius: 10px; padding: 14px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+
+# ════════════════════════════════════════════════════════════
+# SESSION STATE
+# ════════════════════════════════════════════════════════════
+defaults = {
+    'results'       : [],
+    'trade_plans'   : {},
+    'ml_results'    : {},
+    'pattern_results': {},
+    'sentiment_results': {},
+    'last_scan_time': None,
+    'auto_refresh'  : False,
+    'scan_count'    : 0,
+    'notif_sent'    : [],
+    'tg_token'      : "",
+    'tg_chat_id'    : "",
+    'wa_phone'      : "",
+    'wa_key'        : "",
+    'modal'         : 10_000_000,
+    'tickers'       : ["BBCA","BBRI","BMRI","TLKM","ASII","UNVR","KLBF","ADRO","ANTM","MDKA"],
+    'ml_cache'      : {},
+    'enable_ml'     : False,
+    'enable_pattern': True,
+    'enable_sentiment': False,
+    'enable_tg'     : True,
+    'enable_wa'     : False,
+}
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
+
+
+# ════════════════════════════════════════════════════════════
+# HELPER FUNCTIONS
+# ════════════════════════════════════════════════════════════
+def parse_tickers(raw: str) -> list:
+    tickers = [t.strip().upper() for t in raw.replace('\n', ',').split(',') if t.strip()]
+    return list(dict.fromkeys(tickers))
+
+
+def metric_card(col, label: str, value, color: str = "#e6edf3"):
+    with col:
+        st.markdown(f"""
+        <div class='metric-box'>
+            <div style='color:#8b949e; font-size:0.78rem;'>{label}</div>
+            <div style='color:{color}; font-size:1.4rem; font-weight:bold;'>{value}</div>
+        </div>""", unsafe_allow_html=True)
+
+
+def render_score_bar(score: int, color: str):
+    st.markdown(f"""
+    <div style='display:flex; align-items:center; gap:10px; margin:6px 0;'>
+        <div style='flex:1; background:#30363d; border-radius:8px; height:10px; overflow:hidden;'>
+            <div style='width:{score}%; background:{color}; height:100%; border-radius:8px;'></div>
+        </div>
+        <span style='color:{color}; font-weight:bold; min-width:55px;'>{score}/100</span>
+    </div>""", unsafe_allow_html=True)
+
+
+def render_signal_row(name: str, signal: dict):
+    icon  = "✅" if signal['status'] else "❌"
+    color = "#00ff88" if signal['status'] else "#8b949e"
+    pts   = signal.get('points', 0)
+    st.markdown(f"""
+    <div class='info-row'>
+        <span style='color:#8b949e;'>{icon} {name}</span>
+        <span>
+            <span style='color:{color}; font-size:0.85rem;'>{signal['value']}</span>
+            <span style='color:#ffd700; font-size:0.8rem; margin-left:8px;'>+{pts}pts</span>
+        </span>
+    </div>""", unsafe_allow_html=True)
+
+
+def create_chart(df, ticker, trade_plan, timeframe="3 Bulan",
+                  show_fib=False, show_trendline=False) -> go.Figure:
+    """Wrapper: gunakan create_upgraded_chart dengan opsi advanced."""
+    return create_upgraded_chart(df, ticker, trade_plan,
+                                  timeframe=timeframe,
+                                  show_fib=show_fib,
+                                  show_trendline=show_trendline)
+
+
+def export_to_csv(results: list, trade_plans: dict) -> bytes:
+    rows = []
+    for r in results:
+        ticker = r['ticker']
+        tp = trade_plans.get(ticker, {})
+        rows.append({
+            'Tanggal': datetime.now().strftime('%Y-%m-%d %H:%M'),
+            'Ticker': ticker, 'Kategori': r['category'], 'Skor': r['score'],
+            'Harga': r['close'], 'Volume Ratio': r['volume_ratio'], 'RSI': r['rsi'],
+            'Entry': r['close'],
+            'SL': tp.get('sl', {}).get('recommended', ''),
+            'TP1': tp.get('tp', {}).get('tp1', ''), 'TP2': tp.get('tp', {}).get('tp2', ''),
+            'TP3': tp.get('tp', {}).get('tp3', ''),
+            'Risk %': tp.get('sl', {}).get('risk_pct', ''),
+            'Max Lot': tp.get('position', {}).get('lot', ''),
+        })
+    return pd.DataFrame(rows).to_csv(index=False).encode('utf-8')
+
+
+def run_scan(tickers: list, modal: float, prog=None,
+             enable_ml: bool = False, enable_pattern: bool = True,
+             enable_sentiment: bool = False) -> tuple:
+    results, trade_plans = [], {}
+    ml_results, pattern_results, sentiment_results = {}, {}, {}
+
+    for i, ticker in enumerate(tickers):
+        if prog:
+            prog.progress((i+1)/len(tickers), f"📡 {ticker} ({i+1}/{len(tickers)})...")
+
+        df = fetch_stock_data(ticker)
+        if df is None:
+            continue
+
+        result = score_stock(df)
+        if result:
+            result['ticker'] = ticker
+            results.append(result)
+            trade_plans[ticker] = get_full_trade_plan(
+                result['close'], result['atr'], result['support'], modal)
+
+            # 🆕 Chart Pattern Recognition
+            if enable_pattern:
+                try:
+                    pattern_results[ticker] = analyze_patterns(df)
+                except Exception as e:
+                    print(f"[APP] Pattern error {ticker}: {e}")
+
+            # 🆕 AI Confidence
+            if enable_ml and SKLEARN_AVAILABLE:
+                try:
+                    ml_results[ticker] = predict_confidence(
+                        ticker, df, st.session_state['ml_cache'])
+                except Exception as e:
+                    print(f"[APP] ML error {ticker}: {e}")
+
+            # 🆕 News Sentiment
+            if enable_sentiment:
+                try:
+                    sentiment_results[ticker] = analyze_news_sentiment(ticker)
+                except Exception as e:
+                    print(f"[APP] Sentiment error {ticker}: {e}")
+
+        time.sleep(0.05)
+
+    results.sort(key=lambda x: x['score'], reverse=True)
+    return results, trade_plans, ml_results, pattern_results, sentiment_results
+
+
+# ════════════════════════════════════════════════════════════
+# SIDEBAR
+# ════════════════════════════════════════════════════════════
+with st.sidebar:
+    st.markdown("## 📈 Breakout Detector Pro")
+
+    mkt = get_market_status()
+    st.markdown(f"""
+    <div style='background:#161b22; border:1px solid #30363d; border-radius:8px;
+                padding:12px; margin-bottom:12px;'>
+        <div style='color:{mkt["status_color"]}; font-weight:bold;'>{mkt["status_text"]}</div>
+        <div style='color:#8b949e; font-size:0.83rem;'>{mkt["day_name"]}, {mkt["date_str"]}</div>
+        <div style='color:#8b949e; font-size:0.83rem;'>🕐 {mkt["time_str"]} WIB</div>
+        <div style='color:#8b949e; font-size:0.78rem; margin-top:4px;'>{mkt["info_text"]}</div>
+    </div>""", unsafe_allow_html=True)
+
+    st.divider()
+
+    # Ticker input
+    st.subheader("📋 Daftar Saham")
+
+    scan_mode = st.radio(
+        "Mode Scan:",
+        ["🎯 Custom (manual)", "⚡ Top 20 IDX", "🔥 Semua IDX (956 saham)", "🏭 Filter Sektor"],
+        index=0
+    )
+
+    if scan_mode == "⚡ Top 20 IDX":
+        st.session_state['tickers'] = ["BBCA","BBRI","BMRI","TLKM","ASII","UNVR","KLBF","ADRO","ANTM","MDKA","BRPT","TPIA","CUAN","MDKA","MTEL","BYAN","PTBA","INDF","SMGR","ICBP"]
+        ticker_input = ", ".join(["BBCA","BBRI","BMRI","TLKM","ASII","UNVR","KLBF","ADRO","ANTM","MDKA","BRPT","TPIA","CUAN","MDKA","MTEL","BYAN","PTBA","INDF","SMGR","ICBP"])
+        st.info(f"✅ {len(["BBCA","BBRI","BMRI","TLKM","ASII","UNVR","KLBF","ADRO","ANTM","MDKA","BRPT","TPIA","CUAN","MDKA","MTEL","BYAN","PTBA","INDF","SMGR","ICBP"])} saham top IDX")
+    elif scan_mode == "🔥 Semua IDX (956 saham)":
+        st.session_state['tickers'] = ALL_TICKERS
+        ticker_input = ", ".join(ALL_TICKERS)
+        st.warning(f"⚠️ {len(ALL_TICKERS)} saham — butuh ~30 menit")
+    elif scan_mode == "🏭 Filter Sektor":
+        all_sectors = sorted(set(SECTOR_DATA.values()))
+        selected_sector = st.selectbox("Pilih Sektor:", all_sectors)
+        sector_tickers = [t for t, s in SECTOR_DATA.items() if s == selected_sector]
+        st.session_state['tickers'] = sector_tickers
+        ticker_input = ", ".join(sector_tickers)
+        st.info(f"✅ {len(sector_tickers)} saham sektor {selected_sector}")
+    else:
+        ticker_input = st.text_area("Ticker (koma/enter):",
+            value=", ".join(st.session_state['tickers']), height=110)
+        uploaded = st.file_uploader("Upload CSV (kolom: ticker)", type=['csv'])
+        if uploaded:
+            try:
+                df_up = pd.read_csv(uploaded)
+                if 'ticker' in df_up.columns:
+                    ticker_input = ", ".join(df_up['ticker'].astype(str).tolist())
+                    st.success(f"✅ {len(df_up)} ticker dimuat!")
+            except Exception as e:
+                st.error(f"❌ {e}")
+
+    st.divider()
+
+    # Settings
+    st.subheader("⚙️ Pengaturan")
+    min_score = st.slider("Skor Minimum", 0, 100, 40, step=5)
+    modal = st.number_input("Modal Trading (Rp):", min_value=1_000_000,
+                             max_value=10_000_000_000,
+                             value=st.session_state['modal'], step=1_000_000)
+    st.session_state['modal'] = modal
+
+    st.divider()
+
+    # Fitur Tambahan
+    st.subheader("🧠 Fitur Analisis")
+    enable_pattern   = st.toggle("📊 Chart Pattern", value=st.session_state['enable_pattern'])
+    enable_ml        = st.toggle(
+        "🤖 AI Confidence" + (" ✅" if SKLEARN_AVAILABLE else " ❌ (install scikit-learn)"),
+        value=st.session_state['enable_ml'],
+        disabled=not SKLEARN_AVAILABLE
+    )
+    enable_sentiment = st.toggle("📰 News Sentiment", value=st.session_state['enable_sentiment'])
+    st.session_state['enable_pattern']   = enable_pattern
+    st.session_state['enable_ml']        = enable_ml
+    st.session_state['enable_sentiment'] = enable_sentiment
+
+    st.divider()
+
+    # Auto-Refresh
+    st.subheader("🔄 Auto-Refresh")
+    auto_refresh = st.toggle("Auto-refresh saat market buka",
+                              value=st.session_state['auto_refresh'])
+    st.session_state['auto_refresh'] = auto_refresh
+    if auto_refresh and is_market_open():
+        st.success(f"✅ Aktif ({300//60} menit)")
+    elif auto_refresh:
+        st.warning("⏸️ Market tutup")
+
+    st.divider()
+
+    # Notifikasi
+    st.subheader("🔔 Notifikasi")
+    with st.expander("📱 Telegram"):
+        tg_token  = st.text_input("Bot Token:", value=st.session_state['tg_token'], type="password")
+        tg_chatid = st.text_input("Chat ID:", value=st.session_state['tg_chat_id'])
+        st.session_state['tg_token']   = tg_token
+        st.session_state['tg_chat_id'] = tg_chatid
+        enable_tg = st.toggle("Kirim ke Telegram", value=st.session_state['enable_tg'])
+        st.session_state['enable_tg'] = enable_tg
+        if st.button("🧪 Test Telegram"):
+            ok = test_telegram_connection(tg_token, tg_chatid)
+            st.success("✅ OK!") if ok else st.error("❌ Gagal!")
+
+    with st.expander("💬 WhatsApp (CallMeBot)"):
+        wa_phone = st.text_input("Nomor WA:", value=st.session_state['wa_phone'],
+                                  placeholder="628xxxxxxxxxx")
+        wa_key   = st.text_input("API Key:", value=st.session_state['wa_key'], type="password")
+        st.session_state['wa_phone'] = wa_phone
+        st.session_state['wa_key']   = wa_key
+        enable_wa = st.toggle("Kirim ke WhatsApp", value=st.session_state['enable_wa'])
+        st.session_state['enable_wa'] = enable_wa
+        st.caption("Daftar gratis di callmebot.com")
+        if st.button("🧪 Test WhatsApp"):
+            ok = test_whatsapp_connection(wa_phone, wa_key)
+            st.success("✅ OK!") if ok else st.error("❌ Gagal!")
+
+    st.divider()
+    scan_button = st.button("🔍 MULAI SCAN", type="primary", use_container_width=True)
+    if st.session_state['last_scan_time']:
+        st.caption(f"Scan terakhir: {st.session_state['last_scan_time']}")
+    st.caption(f"Total scan: {st.session_state['scan_count']}x")
+
+
+# ════════════════════════════════════════════════════════════
+# AUTO-REFRESH LOGIC
+# ════════════════════════════════════════════════════════════
+should_scan = scan_button
+if st.session_state['auto_refresh'] and is_market_open():
+    last = st.session_state['last_scan_time']
+    if last:
+        try:
+            last_dt = datetime.strptime(last, '%H:%M:%S')
+            now_dt  = datetime.now()
+            elapsed = (now_dt - now_dt.replace(
+                hour=last_dt.hour, minute=last_dt.minute, second=last_dt.second)).seconds
+            if elapsed >= 300:
+                should_scan = True
+        except Exception:
+            pass
+    else:
+        should_scan = True
+
+
+# ════════════════════════════════════════════════════════════
+# HEADER & TABS
+# ════════════════════════════════════════════════════════════
+st.markdown("""
+<h1 style='text-align:center; color:#00ff88; margin-bottom:4px;'>
+    🔥 Stock Breakout Detector Pro
+</h1>
+<p style='text-align:center; color:#8b949e;'>
+    Scanner · AI Confidence · Chart Patterns · News Sentiment · Leaderboard · Portfolio
+</p>
+""", unsafe_allow_html=True)
+
+tab_scanner, tab_patterns, tab_ai, tab_news, tab_bandar, tab_backtest, tab_leaderboard, tab_watchlist, tab_portfolio, tab_history = st.tabs([
+    "📡 Scanner",
+    "📊 Patterns",
+    "🤖 AI Confidence",
+    "📰 Berita",
+    "🐋 Bandarmologi",
+    "🔬 Backtest",
+    "🏆 Leaderboard",
+    "👀 Watchlist",
+    "💼 Portfolio",
+    "📋 Notifikasi"
+])
+
+
+# ════════════════════════════════════════════════════════════
+# SCAN EXECUTION
+# ════════════════════════════════════════════════════════════
+if should_scan:
+    tickers = parse_tickers(ticker_input)
+    st.session_state['tickers'] = tickers
+
+    if not tickers:
+        st.error("❌ Masukkan minimal satu ticker!")
+    else:
+        with tab_scanner:
+            st.info(f"🔍 Scanning {len(tickers)} saham...")
+            prog_ph = st.empty()
+            prog    = prog_ph.progress(0, "Memulai...")
+
+        results, trade_plans, ml_results, pattern_results, sentiment_results = run_scan(
+            tickers, modal, prog,
+            enable_ml        = st.session_state['enable_ml'],
+            enable_pattern   = st.session_state['enable_pattern'],
+            enable_sentiment = st.session_state['enable_sentiment']
+        )
+
+        with tab_scanner:
+            prog_ph.empty()
+
+        filtered = [r for r in results if r['score'] >= min_score]
+        st.session_state.update({
+            'results'           : filtered,
+            'trade_plans'       : trade_plans,
+            'ml_results'        : ml_results,
+            'pattern_results'   : pattern_results,
+            'sentiment_results' : sentiment_results,
+            'last_scan_time'    : datetime.now().strftime('%H:%M:%S'),
+            'scan_count'        : st.session_state['scan_count'] + 1
+        })
+
+        # Update leaderboard
+        if filtered:
+            record_scan_results(filtered)
+            update_watchlist_prices(filtered)
+
+        # Kirim notifikasi
+        if filtered:
+            strong = [r for r in filtered if r['score'] >= 70]
+            if strong:
+                sent = notify_strong_breakouts(
+                    strong, trade_plans,
+                    token=st.session_state['tg_token'],
+                    chat_id=st.session_state['tg_chat_id'],
+                    wa_phone=st.session_state['wa_phone'],
+                    wa_key=st.session_state['wa_key'],
+                    use_telegram=st.session_state['enable_tg'],
+                    use_whatsapp=st.session_state['enable_wa'],
+                    ml_results=ml_results,
+                    patterns=pattern_results,
+                    sentiments=sentiment_results
+                )
+                if sent['telegram'] > 0 or sent['whatsapp'] > 0:
+                    for r in strong:
+                        t = r['ticker']
+                        if t in trade_plans:
+                            st.session_state['notif_sent'].append({
+                                'waktu': datetime.now().strftime('%H:%M:%S'),
+                                'ticker': t, 'skor': r['score'],
+                                'harga': r['close'],
+                                'kategori': r['category']
+                            })
+
+
+# ════════════════════════════════════════════════════════════
+# TAB 1 — SCANNER
+# ════════════════════════════════════════════════════════════
+with tab_scanner:
+    results     = st.session_state.get('results', [])
+    trade_plans = st.session_state.get('trade_plans', {})
+
+    if not results:
+        st.markdown("""
+        <div style='text-align:center; padding:60px; color:#8b949e;'>
+            <div style='font-size:3.5rem;'>📡</div>
+            <h3>Belum ada data scan</h3>
+            <p>Klik <b>MULAI SCAN</b> di sidebar untuk memulai.</p>
+        </div>""", unsafe_allow_html=True)
+    else:
+        strong    = sum(1 for r in results if r['score'] >= 70)
+        potential = sum(1 for r in results if 50 <= r['score'] < 70)
+        watchlist_count = sum(1 for r in results if 40 <= r['score'] < 50)
+
+        cols = st.columns(6)
+        metric_card(cols[0], "📋 Di-scan",   len(results))
+        metric_card(cols[1], "🔥 Strong",    strong,         "#00ff88")
+        metric_card(cols[2], "⚡ Potential", potential,      "#ffd700")
+        metric_card(cols[3], "👀 Watchlist",  watchlist_count, "#ff9500")
+        metric_card(cols[4], "🔄 Scan ke-",  st.session_state['scan_count'], "#1f6feb")
+        metric_card(cols[5], "🕐 Jam Scan",  st.session_state.get('last_scan_time', '-'), "#8b949e")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Tabel ringkasan
+        st.subheader("🗂️ Tabel Hasil Scan")
+        table_rows = []
+        for r in results:
+            t  = r['ticker']
+            tp = trade_plans.get(t, {})
+            sl_d = tp.get('sl', {}); tp_d = tp.get('tp', {})
+
+            # Tambahan: pola dan AI
+            pat = st.session_state['pattern_results'].get(t, {})
+            ml  = st.session_state['ml_results'].get(t, {})
+
+            table_rows.append({
+                'Ticker'     : t,
+                'Kategori'   : r['category'],
+                'Skor'       : r['score'],
+                'Harga'      : f"Rp {r['close']:,.0f}",
+                'Volume'     : f"{r['volume_ratio']:.1f}x",
+                'RSI'        : f"{r['rsi']:.1f}",
+                'AI Conf'    : f"{ml.get('confidence', '-')}%" if ml.get('available') else "-",
+                'Pattern'    : pat.get('best', {}).get('name', '-') if pat.get('best', {}).get('detected') else "-",
+                'SL'         : f"Rp {sl_d.get('recommended', 0):,.0f}",
+                'TP2 ⭐'     : f"Rp {tp_d.get('tp2', 0):,.0f} (+{tp_d.get('tp2_pct', 0):.1f}%)",
+            })
+
+        st.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True,
+            column_config={"Skor": st.column_config.ProgressColumn(
+                "Skor", min_value=0, max_value=100, format="%d")})
+
+        # Export CSV
+        col_exp, _ = st.columns([1, 4])
+        with col_exp:
+            st.download_button("📥 Export CSV", export_to_csv(results, trade_plans),
+                file_name=f"scan_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv")
+
+        st.divider()
+
+        # Detail kartu per saham
+        st.subheader("📈 Detail Per Saham")
+        signal_labels = {
+            'volume': ('📊', 'Volume Spike'), 'resistance': ('📈', 'Breakout Resistance'),
+            'rsi': ('📉', 'RSI Zone'), 'macd': ('🔀', 'MACD'),
+            'ma': ('📏', 'Moving Average'), 'bb': ('🎯', 'Bollinger Bands'),
+            'candle': ('🕯️', 'Pola Candle'),
+        }
+
+        for r in results:
+            t  = r['ticker']
+            tp = trade_plans.get(t)
+            if not tp:
+                continue
+
+            sl_d = tp['sl']; tp_d = tp['tp']; pos_d = tp['position']
+
+            with st.expander(
+                f"{r['category']} | {t} | Skor {r['score']}/100 | Rp {r['close']:,.0f}",
+                expanded=(r['score'] >= 70)
+            ):
+                col_l, col_r = st.columns(2)
+
+                with col_l:
+                    st.markdown("#### 📌 Rencana Trading")
+                    render_score_bar(r['score'], r['cat_color'])
+
+                    m1, m2 = st.columns(2)
+                    with m1:
+                        st.metric("Entry", f"Rp {r['close']:,.0f}")
+                        st.metric("TP1",   f"Rp {tp_d['tp1']:,.0f}", f"+{tp_d['tp1_pct']:.1f}%")
+                        st.metric("TP2 ⭐", f"Rp {tp_d['tp2']:,.0f}", f"+{tp_d['tp2_pct']:.1f}%")
+                    with m2:
+                        st.metric("SL",   f"Rp {sl_d['recommended']:,.0f}", f"-{sl_d['risk_pct']:.1f}%")
+                        st.metric("TP3",  f"Rp {tp_d['tp3']:,.0f}", f"+{tp_d['tp3_pct']:.1f}%")
+
+                    st.info(
+                        f"💰 Modal Rp {st.session_state['modal']:,.0f} | Risk 2%\n\n"
+                        f"👉 Max **{pos_d['lot']} lot ({pos_d['lembar']:,} lembar)**\n\n"
+                        f"Maks. loss: Rp {pos_d['max_loss']:,.0f}"
+                    )
+
+                    # Tambah ke watchlist
+                    wl = get_watchlist()
+                    if t in wl:
+                        if st.button(f"❌ Hapus dari Watchlist", key=f"rm_wl_{t}"):
+                            remove_from_watchlist(t)
+                            st.rerun()
+                    else:
+                        if st.button(f"👀 Tambah ke Watchlist", key=f"add_wl_{t}"):
+                            add_to_watchlist(t, scan_result=r)
+                            st.success("✅ Ditambahkan!")
+
+                with col_r:
+                    st.markdown("#### 📊 Sinyal Indikator")
+                    for key, (icon, label) in signal_labels.items():
+                        if key in r.get('signals', {}):
+                            render_signal_row(f"{icon} {label}", r['signals'][key])
+
+                # Chart
+                st.markdown("#### 📉 Chart Teknikal")
+                if 'df' in r:
+                    chart_col1, chart_col2, chart_col3 = st.columns(3)
+                    with chart_col1:
+                        tf_opt = st.selectbox("Timeframe:", ["1 Bulan","3 Bulan","6 Bulan","1 Tahun"],
+                                               index=1, key=f"tf_{t}")
+                    with chart_col2:
+                        show_fib = st.toggle("📐 Fibonacci", value=False, key=f"fib_{t}")
+                    with chart_col3:
+                        show_tl = st.toggle("📏 Trendline", value=True, key=f"tl_{t}")
+
+                    # ADX & MFI
+                    df_adv = add_advanced_indicators(r['df'].copy())
+                    last   = df_adv.iloc[-1]
+                    adx_val = float(last['ADX']) if pd.notna(last.get('ADX')) else 0
+                    mfi_val = float(last['MFI']) if pd.notna(last.get('MFI')) else 50
+                    adx_sig = get_adx_signal(adx_val)
+                    mfi_sig = get_mfi_signal(mfi_val)
+                    sector  = SECTOR_DATA.get(t, 'N/A')
+
+                    adv_c1, adv_c2, adv_c3 = st.columns(3)
+                    with adv_c1:
+                        st.markdown(f"**ADX:** {adx_sig['icon']} <span style='color:{adx_sig['color']};'>{adx_val:.1f} — {adx_sig['status']}</span>", unsafe_allow_html=True)
+                    with adv_c2:
+                        st.markdown(f"**MFI:** {mfi_sig['icon']} <span style='color:{mfi_sig['color']};'>{mfi_val:.1f} — {mfi_sig['status']}</span>", unsafe_allow_html=True)
+                    with adv_c3:
+                        st.markdown(f"**Sektor:** `{sector}`")
+
+                    st.plotly_chart(create_chart(r['df'], t, tp,
+                        timeframe=tf_opt, show_fib=show_fib, show_trendline=show_tl),
+                        use_container_width=True)
+
+        if st.session_state['auto_refresh'] and is_market_open():
+            time.sleep(300)
+            st.rerun()
+
+
+# ════════════════════════════════════════════════════════════
+# TAB 2 — CHART PATTERNS
+# ════════════════════════════════════════════════════════════
+with tab_patterns:
+    st.markdown("### 📊 Chart Pattern Recognition")
+    st.markdown("Deteksi otomatis: Double Top/Bottom, Head & Shoulders, Ascending Triangle, Bull Flag, Cup & Handle")
+    st.divider()
+
+    pattern_results = st.session_state.get('pattern_results', {})
+    results = st.session_state.get('results', [])
+
+    if not pattern_results:
+        st.info("💡 Aktifkan **Chart Pattern** di sidebar, lalu jalankan scan.")
+        # Manual analysis
+        st.subheader("🔍 Analisis Pattern Manual")
+        manual_ticker = st.text_input("Masukkan ticker:", placeholder="BBCA.JK")
+        if st.button("🔍 Analisis Pattern") and manual_ticker:
+            with st.spinner("Menganalisis..."):
+                df_manual = fetch_stock_data(manual_ticker.upper().strip())
+                if df_manual is not None:
+                    pattern_results = {manual_ticker.upper(): analyze_patterns(df_manual)}
+                    st.session_state['pattern_results'] = pattern_results
+                else:
+                    st.error("❌ Data tidak tersedia.")
+
+    if pattern_results:
+        # Summary
+        all_patterns_flat = []
+        for ticker, pr in pattern_results.items():
+            for pat in pr.get('all', []):
+                all_patterns_flat.append({**pat, 'ticker': ticker})
+
+        if all_patterns_flat:
+            bullish_count = sum(1 for p in all_patterns_flat if p['signal'] == 'BULLISH')
+            bearish_count = sum(1 for p in all_patterns_flat if p['signal'] == 'BEARISH')
+
+            c1, c2, c3 = st.columns(3)
+            metric_card(c1, "📊 Total Pattern", len(all_patterns_flat))
+            metric_card(c2, "🟢 Bullish",       bullish_count, "#00ff88")
+            metric_card(c3, "🔴 Bearish",       bearish_count, "#ff4444")
+            st.markdown("<br>", unsafe_allow_html=True)
+
+        for ticker, pr in pattern_results.items():
+            best = pr.get('best', {})
+            all_pats = pr.get('all', [])
+
+            if not all_pats:
+                continue
+
+            with st.expander(
+                f"{'🟢' if best.get('signal')=='BULLISH' else '🔴'} {ticker} — "
+                f"{best.get('name', 'No Pattern')} | {pr.get('count', 0)} pattern",
+                expanded=True
+            ):
+                for pat in all_pats:
+                    signal_color = "#00ff88" if pat['signal'] == 'BULLISH' else "#ff4444"
+                    conf_bar = int(pat['confidence'] / 20)
+                    conf_dots = "🟢" * conf_bar + "⚪" * (5 - conf_bar)
+
+                    st.markdown(f"""
+                    <div class='pattern-box' style='margin-bottom:12px;'>
+                        <div style='display:flex; justify-content:space-between; align-items:center;'>
+                            <span style='font-size:1.05rem; font-weight:bold; color:{signal_color};'>
+                                {pat['name']}
+                            </span>
+                            <span style='color:#8b949e; font-size:0.85rem;'>
+                                Sinyal: <b style='color:{signal_color}'>{pat['signal']}</b>
+                            </span>
+                        </div>
+                        <div style='color:#8b949e; font-size:0.85rem; margin:6px 0;'>
+                            {pat.get('description', '')}
+                        </div>
+                        <div style='display:flex; gap:20px; margin-top:8px;'>
+                            <span>Confidence: {conf_dots} <b style='color:{signal_color};'>
+                                {pat['confidence']}%</b></span>
+                            <span style='color:#8b949e;'>
+                                {'✅ Terkonfirmasi' if pat.get('confirmed') else '⏳ Belum konfirmasi'}
+                            </span>
+                        </div>
+                    """, unsafe_allow_html=True)
+
+                    # Price levels
+                    pl = pat.get('price_levels', {})
+                    if pl:
+                        lvl_str = " | ".join(f"<b>{k.replace('_',' ').title()}</b>: Rp {v:,.0f}"
+                                             for k, v in pl.items() if isinstance(v, (int, float)))
+                        st.markdown(f"<div style='color:#8b949e; font-size:0.82rem;'>{lvl_str}</div>",
+                                    unsafe_allow_html=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ════════════════════════════════════════════════════════════
+# TAB 3 — AI CONFIDENCE
+# ════════════════════════════════════════════════════════════
+with tab_ai:
+    st.markdown("### 🤖 AI Signal Confidence")
+    st.markdown(
+        "Model Machine Learning (Random Forest) dilatih dari data historis 180 hari "
+        "untuk memprediksi probabilitas breakout berhasil."
+    )
+    st.divider()
+
+    if not SKLEARN_AVAILABLE:
+        st.error("❌ **scikit-learn belum terinstall!**\n\nJalankan: `pip install scikit-learn`")
+    else:
+        ml_results = st.session_state.get('ml_results', {})
+
+        if not ml_results:
+            st.info("💡 Aktifkan **AI Confidence** di sidebar, lalu jalankan scan.")
+
+            # Manual AI
+            st.subheader("🔍 Analisis AI Manual")
+            ai_ticker = st.text_input("Masukkan ticker:", placeholder="BBCA.JK", key="ai_ticker")
+            if st.button("🤖 Analisis AI") and ai_ticker:
+                with st.spinner("Training model & prediksi..."):
+                    df_ai = fetch_stock_data(ai_ticker.upper().strip(), days=200)
+                    if df_ai is not None:
+                        ai_r = predict_confidence(
+                            ai_ticker.upper(), df_ai, st.session_state['ml_cache'])
+                        ml_results = {ai_ticker.upper(): ai_r}
+                    else:
+                        st.error("❌ Data tidak tersedia.")
+
+        if ml_results:
+            # Sort by confidence
+            sorted_ml = sorted(ml_results.items(),
+                                key=lambda x: x[1].get('confidence', 0), reverse=True)
+
+            # Summary
+            available = [(t, r) for t, r in sorted_ml if r.get('available')]
+            if available:
+                avg_conf = sum(r['confidence'] for _, r in available) / len(available)
+                high_conf = sum(1 for _, r in available if r['confidence'] >= 70)
+                c1, c2, c3 = st.columns(3)
+                metric_card(c1, "📊 Dianalisis", len(available))
+                metric_card(c2, "🟢 High Conf (≥70%)", high_conf, "#00ff88")
+                metric_card(c3, "📈 Avg Confidence", f"{avg_conf:.0f}%",
+                            "#00ff88" if avg_conf >= 60 else "#ffd700")
+                st.markdown("<br>", unsafe_allow_html=True)
+
+            for ticker, ml in sorted_ml:
+                if not ml.get('available'):
+                    continue
+
+                conf  = ml['confidence']
+                color = ml['color']
+                conf_bar_filled = int(conf / 10)
+
+                with st.expander(f"🤖 {ticker} — {ml['label']} | {conf}% Confidence"):
+                    col_a, col_b = st.columns([2, 1])
+
+                    with col_a:
+                        st.markdown(f"""
+                        <div class='ai-box'>
+                            <div style='font-size:1.1rem; font-weight:bold; color:{color};
+                                        margin-bottom:10px;'>{ml['label']}</div>
+                            <div style='display:flex; align-items:center; gap:10px; margin-bottom:10px;'>
+                                <div style='flex:1; background:#30363d; border-radius:6px;
+                                            height:16px; overflow:hidden;'>
+                                    <div style='width:{conf}%; background:{color}; height:100%;
+                                                border-radius:6px;'></div>
+                                </div>
+                                <span style='color:{color}; font-size:1.2rem;
+                                             font-weight:bold;'>{conf}%</span>
+                            </div>
+                            <div style='color:#8b949e; font-size:0.85rem;'>
+                                CV Accuracy Model: <b style='color:#e6edf3;'>{ml.get('accuracy', 0):.1f}%</b> |
+                                Training data: <b style='color:#e6edf3;'>{ml.get('n_samples', 0)} sampel</b>
+                            </div>
+                        </div>""", unsafe_allow_html=True)
+
+                    with col_b:
+                        st.markdown("**Top Features:**")
+                        for feat_name, imp in ml.get('feat_importance', []):
+                            imp_pct = int(imp * 100)
+                            st.markdown(f"""
+                            <div style='margin:4px 0;'>
+                                <div style='color:#8b949e; font-size:0.78rem;'>{feat_name}</div>
+                                <div style='background:#30363d; border-radius:4px; height:6px;'>
+                                    <div style='width:{imp_pct*5}%; background:#1f6feb;
+                                                height:100%; border-radius:4px;'></div>
+                                </div>
+                            </div>""", unsafe_allow_html=True)
+
+
+# ════════════════════════════════════════════════════════════
+# TAB 4 — NEWS SENTIMENT
+# ════════════════════════════════════════════════════════════
+with tab_news:
+    st.markdown("### 📰 News Sentiment Analysis")
+    st.markdown("Analisis sentimen berita terbaru dari Yahoo Finance untuk setiap saham.")
+    st.divider()
+
+    sentiment_results = st.session_state.get('sentiment_results', {})
+
+    if not sentiment_results:
+        st.info("💡 Aktifkan **News Sentiment** di sidebar, lalu jalankan scan.")
+        # Manual news
+        st.subheader("🔍 Cari Berita Manual")
+        news_ticker = st.text_input("Ticker:", placeholder="BBCA.JK", key="news_ticker")
+        if st.button("📰 Ambil Berita") and news_ticker:
+            with st.spinner("Mengambil berita..."):
+                sentiment_results = {news_ticker.upper(): analyze_news_sentiment(news_ticker.upper())}
+                st.session_state['sentiment_results'] = sentiment_results
+
+    if sentiment_results:
+        for ticker, sent in sentiment_results.items():
+            if not sent.get('available'):
+                st.warning(f"📭 {ticker}: Berita tidak tersedia")
+                continue
+
+            color = sent['color']
+            with st.expander(
+                f"📰 {ticker} — {sent['label']} | Skor {sent['avg_score']:.0f}/100 | "
+                f"{sent['article_count']} artikel",
+                expanded=True
+            ):
+                c1, c2, c3, c4 = st.columns(4)
+                metric_card(c1, "📊 Skor Sentimen", f"{sent['avg_score']:.0f}/100", color)
+                metric_card(c2, "😊 Positif", sent['pos_articles'], "#00ff88")
+                metric_card(c3, "😟 Negatif", sent['neg_articles'], "#ff4444")
+                metric_card(c4, "😐 Netral",  sent['neutral_articles'], "#ffd700")
+
+                st.markdown("<br>", unsafe_allow_html=True)
+
+                for article in sent.get('articles', []):
+                    art_sent  = article.get('sentiment', {})
+                    art_color = art_sent.get('color', '#8b949e')
+                    art_label = art_sent.get('label', '')
+                    hours_ago = article.get('hours_ago', 999)
+                    time_str  = f"{hours_ago}j lalu" if hours_ago < 24 else article.get('published', '')
+
+                    st.markdown(f"""
+                    <div class='news-box'>
+                        <div style='display:flex; justify-content:space-between;'>
+                            <span style='color:{art_color}; font-size:0.8rem;
+                                         font-weight:bold;'>{art_label}</span>
+                            <span style='color:#8b949e; font-size:0.78rem;'>🕐 {time_str}</span>
+                        </div>
+                        <div style='color:#e6edf3; margin:4px 0; font-size:0.9rem;'>
+                            {article['title'][:120]}
+                        </div>
+                        <div style='color:#8b949e; font-size:0.78rem;'>
+                            Skor: <b style='color:{art_color};'>{art_sent.get('score', 0):.0f}</b>/100
+                        </div>
+                    </div>""", unsafe_allow_html=True)
+
+
+# ════════════════════════════════════════════════════════════
+# TAB 5 — BANDARMOLOGI
+# ════════════════════════════════════════════════════════════
+with tab_bandar:
+    st.markdown("### 🐋 Bandarmologi — Deteksi Akumulasi & Distribusi Bandar")
+    st.caption("Analisis pola pergerakan bandar menggunakan CMF, A/D Line, VPT, OBV, dan VWAP dari data publik.")
+    st.divider()
+
+    # ── Pilih Saham ─────────────────────────────────────────
+    bandar_col1, bandar_col2 = st.columns([2, 1])
+    with bandar_col1:
+        bandar_ticker = st.text_input(
+            "Kode Saham:",
+            value=st.session_state.get('selected_ticker', 'BBCA.JK'),
+            key="bandar_ticker_input",
+            placeholder="Contoh: BBCA.JK, GOTO.JK"
+        ).upper().strip()
+        if not bandar_ticker.endswith('.JK') and bandar_ticker:
+            bandar_ticker += '.JK'
+    with bandar_col2:
+        bandar_days = st.selectbox("Periode Data:", [60, 90, 120, 180], index=1, key="bandar_days")
+
+    analyze_bandar = st.button("🐋 Analisis Bandarmologi", type="primary", use_container_width=True, key="btn_bandar")
+
+    # ── Tampilkan dari scan juga (top saham) ─────────────────
+    if st.session_state.get('scan_results'):
+        scan_tickers = [r['ticker'] for r in st.session_state['scan_results'][:5]]
+        st.caption(f"💡 Dari hasil scan terakhir: pilih saham untuk dianalisis")
+        quick_cols = st.columns(len(scan_tickers))
+        for i, qt in enumerate(scan_tickers):
+            with quick_cols[i]:
+                if st.button(qt, key=f"bandar_quick_{qt}", use_container_width=True):
+                    bandar_ticker = qt
+                    analyze_bandar = True
+
+    if analyze_bandar and bandar_ticker:
+        with st.spinner(f"🐋 Menganalisis pola bandar {bandar_ticker}..."):
+            df_bandar = fetch_stock_data(bandar_ticker, bandar_days)
+
+        if df_bandar is None or len(df_bandar) < 30:
+            st.error(f"❌ Data tidak cukup untuk {bandar_ticker}. Coba ticker lain.")
+        else:
+            result_b = analyze_bandarmologi(df_bandar)
+
+            if not result_b['available']:
+                st.warning(result_b['rekomendasi'])
+            else:
+                # ── Header Fase Bandar ───────────────────────
+                st.markdown(f"""
+                <div style='background:{result_b["fase_color"]}22; border:2px solid {result_b["fase_color"]};
+                     border-radius:12px; padding:20px; margin-bottom:16px; text-align:center;'>
+                    <div style='font-size:2.5em;'>{result_b["fase_emoji"]}</div>
+                    <div style='font-size:1.6em; font-weight:bold; color:{result_b["fase_color"]};'>
+                        {result_b["fase"]}
+                    </div>
+                    <div style='color:#e6edf3; margin-top:8px; font-size:0.95em;'>
+                        {result_b["rekomendasi"]}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # ── Metrics Row ──────────────────────────────
+                m1, m2, m3, m4, m5 = st.columns(5)
+                ind = result_b['indicators']
+
+                with m1:
+                    strength = result_b['bandar_strength']
+                    s_color = '#00ff88' if strength > 60 else '#ff4444' if strength < 40 else '#ffd700'
+                    st.markdown(f"<div style='text-align:center'><div style='color:#8b949e;font-size:0.8em;'>Kekuatan Bandar</div>"
+                                f"<div style='font-size:1.6em;font-weight:bold;color:{s_color};'>{strength}/100</div></div>",
+                                unsafe_allow_html=True)
+                with m2:
+                    cmf_val = ind.get('cmf', 0)
+                    cmf_color = '#00ff88' if cmf_val > 0.05 else '#ff4444' if cmf_val < -0.05 else '#ffd700'
+                    st.markdown(f"<div style='text-align:center'><div style='color:#8b949e;font-size:0.8em;'>CMF</div>"
+                                f"<div style='font-size:1.6em;font-weight:bold;color:{cmf_color};'>{cmf_val:+.3f}</div>"
+                                f"<div style='font-size:0.75em;color:{cmf_color};'>{ind.get('cmf_label','')}</div></div>",
+                                unsafe_allow_html=True)
+                with m3:
+                    vwap_pct = ind.get('vwap_pct', 0)
+                    vwap_c = '#00ff88' if ind.get('above_vwap') else '#ff4444'
+                    vwap_label = 'Di Atas VWAP' if ind.get('above_vwap') else 'Di Bawah VWAP'
+                    st.markdown(f"<div style='text-align:center'><div style='color:#8b949e;font-size:0.8em;'>vs VWAP</div>"
+                                f"<div style='font-size:1.6em;font-weight:bold;color:{vwap_c};'>{vwap_pct:+.1f}%</div>"
+                                f"<div style='font-size:0.75em;color:{vwap_c};'>{vwap_label}</div></div>",
+                                unsafe_allow_html=True)
+                with m4:
+                    acc = result_b['accum_score']
+                    st.markdown(f"<div style='text-align:center'><div style='color:#8b949e;font-size:0.8em;'>Skor Akumulasi</div>"
+                                f"<div style='font-size:1.6em;font-weight:bold;color:#00ff88;'>{acc}/100</div></div>",
+                                unsafe_allow_html=True)
+                with m5:
+                    dist = result_b['distr_score']
+                    st.markdown(f"<div style='text-align:center'><div style='color:#8b949e;font-size:0.8em;'>Skor Distribusi</div>"
+                                f"<div style='font-size:1.6em;font-weight:bold;color:#ff4444;'>{dist}/100</div></div>",
+                                unsafe_allow_html=True)
+
+                st.divider()
+
+                # ── Sinyal Detail ────────────────────────────
+                sig_col, trend_col = st.columns([1.2, 1])
+                with sig_col:
+                    st.markdown("#### 🔍 Sinyal Terdeteksi")
+                    for sig in result_b['signals']:
+                        st.markdown(f"- {sig}")
+
+                with trend_col:
+                    st.markdown("#### 📈 Arah Indikator")
+                    trend_map = {
+                        'UP'  : ('⬆️', '#00ff88'),
+                        'DOWN': ('⬇️', '#ff4444'),
+                        'FLAT': ('➡️', '#ffd700')
+                    }
+                    for key, label in [('ad_trend','A/D Line'), ('vpt_trend','VPT'),
+                                        ('obv_trend','OBV')]:
+                        tr = ind.get(key, 'FLAT')
+                        em, col = trend_map.get(tr, ('➡️','#ffd700'))
+                        st.markdown(f"**{label}:** <span style='color:{col};'>{em} {tr}</span>",
+                                    unsafe_allow_html=True)
+                    st.markdown(f"**Volume Ratio:** `{ind.get('vol_ratio',1):.1f}x` rata-rata")
+                    st.markdown(f"**VWAP:** `{ind.get('vwap',0):,.0f}`")
+
+                st.divider()
+
+                # ── Chart Bandarmologi ───────────────────────
+                st.markdown("#### 📊 Chart Indikator Bandar")
+                try:
+                    from plotly.subplots import make_subplots
+                    import plotly.graph_objects as go
+
+                    df_b = df_bandar.copy()
+                    data_b = result_b['data']
+
+                    fig_b = make_subplots(
+                        rows=4, cols=1, shared_xaxes=True,
+                        vertical_spacing=0.04,
+                        row_heights=[0.4, 0.2, 0.2, 0.2],
+                        subplot_titles=(
+                            f"{bandar_ticker} + VWAP",
+                            "CMF (Chaikin Money Flow)",
+                            "A/D Line + VPT",
+                            "OBV (On Balance Volume)"
+                        )
+                    )
+
+                    # Candlestick
+                    fig_b.add_trace(go.Candlestick(
+                        x=df_b.index, open=df_b['Open'], high=df_b['High'],
+                        low=df_b['Low'], close=df_b['Close'],
+                        increasing_line_color='#00ff88', decreasing_line_color='#ff4444',
+                        name="OHLC", showlegend=False
+                    ), row=1, col=1)
+
+                    # VWAP
+                    fig_b.add_trace(go.Scatter(
+                        x=df_b.index, y=data_b['vwap'],
+                        name="VWAP", line=dict(color='#ffd700', width=2, dash='dash'),
+                    ), row=1, col=1)
+
+                    # CMF
+                    cmf_colors = ['#00ff88' if v >= 0 else '#ff4444' for v in data_b['cmf'].fillna(0)]
+                    fig_b.add_trace(go.Bar(
+                        x=df_b.index, y=data_b['cmf'],
+                        marker_color=cmf_colors, name="CMF", showlegend=False
+                    ), row=2, col=1)
+                    fig_b.add_hline(y=0.1,  line_dash="dot", line_color="#00ff88", line_width=1, row=2, col=1)
+                    fig_b.add_hline(y=0,    line_dash="dash", line_color="#8b949e", line_width=1, row=2, col=1)
+                    fig_b.add_hline(y=-0.1, line_dash="dot", line_color="#ff4444", line_width=1, row=2, col=1)
+
+                    # A/D Line
+                    fig_b.add_trace(go.Scatter(
+                        x=df_b.index, y=data_b['ad'],
+                        name="A/D Line", line=dict(color='#00ccff', width=2)
+                    ), row=3, col=1)
+                    # VPT (normalize ke skala A/D)
+                    vpt_norm = data_b['vpt'] / data_b['vpt'].abs().max() * data_b['ad'].abs().max()
+                    fig_b.add_trace(go.Scatter(
+                        x=df_b.index, y=vpt_norm,
+                        name="VPT (scaled)", line=dict(color='#a371f7', width=1.5, dash='dot')
+                    ), row=3, col=1)
+
+                    # OBV
+                    fig_b.add_trace(go.Scatter(
+                        x=df_b.index, y=data_b['obv'],
+                        name="OBV", line=dict(color='#ff9500', width=2), showlegend=False
+                    ), row=4, col=1)
+
+                    fig_b.update_layout(
+                        height=750, plot_bgcolor='#0d1117', paper_bgcolor='#0d1117',
+                        font_color='#e6edf3', xaxis_rangeslider_visible=False,
+                        legend=dict(bgcolor='#161b22', font=dict(size=10)),
+                        margin=dict(l=10, r=20, t=40, b=10)
+                    )
+                    fig_b.update_xaxes(gridcolor='#21262d')
+                    fig_b.update_yaxes(gridcolor='#21262d')
+                    st.plotly_chart(fig_b, use_container_width=True)
+
+                except Exception as e:
+                    st.warning(f"Chart tidak bisa ditampilkan: {e}")
+
+                # ── Penjelasan Singkat ───────────────────────
+                with st.expander("📖 Cara Baca Indikator Bandarmologi"):
+                    st.markdown("""
+**CMF (Chaikin Money Flow)**
+- `> +0.10` → Tekanan beli dominan = **Bandar akumulasi**
+- `< -0.10` → Tekanan jual dominan = **Bandar distribusi**
+- `-0.10 s/d +0.10` → Netral / konsolidasi
+
+**A/D Line (Accumulation/Distribution)**
+- Naik meski harga turun = **Akumulasi tersembunyi** (sinyal kuat beli)
+- Turun meski harga naik = **Distribusi tersembunyi** (waspada jual)
+
+**VPT (Volume Price Trend)**
+- Lebih sensitif dari OBV — memperhitungkan **besar kecilnya perubahan harga**
+- Konfirmator A/D Line
+
+**OBV (On Balance Volume)**
+- Konfirmasi sederhana: OBV naik = akumulasi, turun = distribusi
+
+**VWAP**
+- Harga di atas VWAP = bandar support harga (bullish)
+- Harga di bawah VWAP = bandar tidak support (bearish)
+
+**⚠️ Catatan Penting:**
+Bandarmologi dari data publik bersifat estimasi. Data broker summary dan net foreign buy/sell dari BEI langsung lebih akurat tapi membutuhkan data premium.
+                    """)
+
+
+# ════════════════════════════════════════════════════════════
+# TAB 6 — BACKTESTING
+# ════════════════════════════════════════════════════════════
+with tab_backtest:
+    st.markdown("### 🔬 Backtesting Strategi")
+    st.divider()
+
+    col_bt1, col_bt2, col_bt3 = st.columns([2, 1, 1])
+    with col_bt1:
+        bt_ticker = st.text_input("Ticker:", value=", ".join(st.session_state['tickers'][:5]))
+    with col_bt2:
+        bt_days = st.selectbox("Periode:", [30, 60, 90], index=0)
+    with col_bt3:
+        bt_mode = st.selectbox("Mode:", ["Detail (1 saham)", "Multi Saham"])
+
+    if st.button("▶️ Jalankan Backtest", type="primary"):
+        bt_tickers = parse_tickers(bt_ticker)
+        if bt_tickers:
+            if bt_mode == "Detail (1 saham)":
+                with st.spinner(f"Backtest {bt_tickers[0]}..."):
+                    bt_r = run_backtest(bt_tickers[0], bt_days)
+
+                if bt_r and bt_r['total_trades'] > 0:
+                    cols = st.columns(6)
+                    metric_card(cols[0], "Total Trade",  bt_r['total_trades'])
+                    metric_card(cols[1], "✅ Win",        bt_r.get('win_count', 0),  "#00ff88")
+                    metric_card(cols[2], "❌ Loss",       bt_r.get('loss_count', 0), "#ff4444")
+                    metric_card(cols[3], "🎯 Win Rate",  f"{bt_r['win_rate']}%",    "#ffd700")
+                    metric_card(cols[4], "📈 Avg P&L",   f"{bt_r['avg_pnl']:+.1f}%",
+                                "#00ff88" if bt_r['avg_pnl'] > 0 else "#ff4444")
+                    metric_card(cols[5], "⏱️ Avg Hold", f"{bt_r.get('avg_days_held', 0)}hr")
+
+                    st.plotly_chart(create_backtest_chart(bt_r), use_container_width=True)
+
+                    trade_rows = [{'#': i+1,
+                        'Entry': str(t['signal_date'])[:10], 'Exit': str(t['exit_date'])[:10],
+                        'Entry Rp': f"{t['entry']:,.0f}", 'Exit Rp': f"{t['exit_price']:,.0f}",
+                        'P&L': f"{t['pnl_pct']:+.2f}%", 'Outcome': t['outcome'],
+                        'Hold': f"{t['days_held']}hr"} for i, t in enumerate(bt_r['trades'])]
+                    st.dataframe(pd.DataFrame(trade_rows), use_container_width=True, hide_index=True)
+                else:
+                    st.warning("⚠️ Tidak ada sinyal terdeteksi di periode ini.")
+            else:
+                prog_bt = st.progress(0, "Memulai...")
+                for i, t in enumerate(bt_tickers):
+                    prog_bt.progress((i+1)/len(bt_tickers), f"Backtest {t}...")
+                prog_bt.empty()
+
+                df_multi = run_multi_backtest(bt_tickers, bt_days)
+                if not df_multi.empty:
+                    st.dataframe(df_multi, use_container_width=True, hide_index=True,
+                        column_config={"Win Rate (%)": st.column_config.ProgressColumn(
+                            min_value=0, max_value=100, format="%.1f%%")})
+
+
+# ════════════════════════════════════════════════════════════
+# TAB 6 — LEADERBOARD
+# ════════════════════════════════════════════════════════════
+with tab_leaderboard:
+    st.markdown("### 🏆 Leaderboard Saham Terbaik")
+    st.markdown("Peringkat saham berdasarkan skor breakout tertinggi dan konsistensi per minggu.")
+    st.divider()
+
+    all_weeks = get_all_weeks()
+    week_options = ["Minggu Ini"] + [f"Minggu {w}" for w in all_weeks[1:]]
+
+    c_lb1, c_lb2 = st.columns([2, 1])
+    with c_lb1:
+        selected_week_label = st.selectbox("Pilih Minggu:", week_options)
+    with c_lb2:
+        top_n = st.number_input("Tampilkan Top:", min_value=5, max_value=20, value=10)
+
+    selected_wk = None if selected_week_label == "Minggu Ini" else \
+                  all_weeks[week_options.index(selected_week_label) - 1]
+
+    lb = get_weekly_leaderboard(selected_wk, top_n)
+
+    if lb['empty']:
+        st.info("📊 Belum ada data leaderboard. Jalankan scan beberapa kali untuk mengisi leaderboard.")
+    else:
+        st.markdown(f"**📅 Periode: {lb['week_label']}** | Total saham muncul: {lb['total']}")
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Top 3 podium
+        stocks = lb['stocks']
+        if len(stocks) >= 3:
+            p1, p2, p3 = st.columns(3)
+            podium = [
+                (p1, stocks[0], "#ffd700", "🥇"),
+                (p2, stocks[1], "#c0c0c0", "🥈"),
+                (p3, stocks[2], "#cd7f32", "🥉"),
+            ]
+            for col, s, color, medal in podium:
+                with col:
+                    pc = s.get('price_change', 0)
+                    pc_color = "#00ff88" if pc >= 0 else "#ff4444"
+                    st.markdown(f"""
+                    <div class='metric-box' style='border-color:{color}; padding:18px;'>
+                        <div style='font-size:1.8rem;'>{medal}</div>
+                        <div style='color:{color}; font-size:1.3rem; font-weight:bold;'>
+                            {s['ticker']}</div>
+                        <div style='color:#e6edf3; font-size:1.1rem;'>Skor {s['best_score']}</div>
+                        <div style='color:#8b949e; font-size:0.8rem;'>Muncul {s['appearances']}x</div>
+                        <div style='color:{pc_color}; font-size:0.85rem;'>{pc:+.1f}% sejak deteksi</div>
+                    </div>""", unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Tabel lengkap
+        df_lb = get_leaderboard_dataframe(selected_wk)
+        if not df_lb.empty:
+            st.dataframe(df_lb, use_container_width=True, hide_index=True)
+
+        st.divider()
+
+        # Multi-week comparison
+        st.subheader("📊 Konsistensi Lintas Minggu")
+        df_mw = get_multi_week_comparison()
+        if not df_mw.empty:
+            st.dataframe(df_mw, use_container_width=True, hide_index=True)
+        else:
+            st.info("Butuh data dari beberapa minggu untuk perbandingan.")
+
+
+# ════════════════════════════════════════════════════════════
+# TAB 7 — WATCHLIST
+# ════════════════════════════════════════════════════════════
+with tab_watchlist:
+    st.markdown("### 👀 Watchlist")
+    st.markdown("Pantau saham-saham yang ingin kamu ikuti.")
+    st.divider()
+
+    # Tambah manual
+    with st.form("add_watchlist_form"):
+        st.markdown("**➕ Tambah Saham**")
+        col_wl1, col_wl2, col_wl3 = st.columns([2, 2, 1])
+        with col_wl1:
+            wl_ticker = st.text_input("Ticker:", placeholder="BBCA.JK")
+        with col_wl2:
+            wl_note = st.text_input("Catatan (opsional):", placeholder="Contoh: Breakout resistance")
+        with col_wl3:
+            wl_alert = st.number_input("Alert Price:", min_value=0.0, value=0.0)
+        if st.form_submit_button("➕ Tambah"):
+            if wl_ticker:
+                add_to_watchlist(wl_ticker.upper().strip(), wl_note,
+                                  wl_alert if wl_alert > 0 else None)
+                st.success(f"✅ {wl_ticker.upper()} ditambahkan!")
+                st.rerun()
+
+    st.divider()
+
+    wl = get_watchlist()
+    if not wl:
+        st.markdown("""
+        <div style='text-align:center; padding:40px; color:#8b949e;'>
+            <div style='font-size:2.5rem;'>👀</div>
+            <p>Watchlist kosong. Tambah saham dari hasil scan atau manual.</p>
+        </div>""", unsafe_allow_html=True)
+    else:
+        st.success(f"📋 {len(wl)} saham di watchlist")
+        for ticker, data in wl.items():
+            score     = data.get('last_score')
+            price     = data.get('last_price')
+            category  = data.get('last_category', '')
+            note      = data.get('note', '')
+            alert_price = data.get('alert_price')
+            score_color = "#00ff88" if (score or 0) >= 80 else "#ffd700" if (score or 0) >= 60 else "#8b949e"
+
+            with st.expander(f"👀 {ticker} | {category or 'Belum di-scan'}"):
+                col_w1, col_w2 = st.columns([3, 1])
+                with col_w1:
+                    if score:
+                        st.markdown(f"**Skor Terakhir:** <span style='color:{score_color};'>{score}/100</span>",
+                                    unsafe_allow_html=True)
+                    if price:
+                        st.markdown(f"**Harga Terakhir:** Rp {price:,.0f}")
+                    if note:
+                        st.markdown(f"**📝 Catatan:** {note}")
+                    if alert_price:
+                        st.markdown(f"**🔔 Alert Price:** Rp {alert_price:,.0f}")
+                    st.markdown(f"**📅 Ditambahkan:** {data.get('added_at', '')[:16]}")
+                with col_w2:
+                    if st.button("❌ Hapus", key=f"rm_{ticker}"):
+                        remove_from_watchlist(ticker)
+                        st.rerun()
+                    if st.button("📊 Scan", key=f"scan_{ticker}"):
+                        with st.spinner("Scanning..."):
+                            df_wl = fetch_stock_data(ticker)
+                            if df_wl:
+                                r_wl = score_stock(df_wl)
+                                if r_wl:
+                                    r_wl['ticker'] = ticker
+                                    add_to_watchlist(ticker, note, alert_price, r_wl)
+                                    st.success(f"Skor: {r_wl['score']}/100")
+                                    st.rerun()
+
+
+# ════════════════════════════════════════════════════════════
+# TAB 8 — PORTFOLIO
+# ════════════════════════════════════════════════════════════
+with tab_portfolio:
+    st.markdown("### 💼 Portfolio Tracker")
+    st.markdown("Catat posisi trading dan pantau P&L secara real-time.")
+    st.divider()
+
+    # Ambil harga terbaru dari hasil scan
+    current_prices = {r['ticker']: r['close'] for r in st.session_state.get('results', [])}
+    summary = get_portfolio_summary(current_prices)
+    stats   = get_portfolio_stats()
+
+    # Summary cards
+    pnl_color = "#00ff88" if summary['total_pnl'] >= 0 else "#ff4444"
+    cols = st.columns(4)
+    metric_card(cols[0], "💰 Total Modal",  f"Rp {summary['total_modal']:,.0f}")
+    metric_card(cols[1], "📊 Nilai Sekarang", f"Rp {summary['total_value']:,.0f}")
+    metric_card(cols[2], "💹 Total P&L",   f"Rp {summary['total_pnl']:,.0f}", pnl_color)
+    metric_card(cols[3], "📈 P&L %",       f"{summary['total_pnl_pct']:+.2f}%", pnl_color)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.divider()
+
+    # Tambah posisi
+    with st.expander("➕ Tambah Posisi Baru"):
+        with st.form("add_position_form"):
+            col_p1, col_p2, col_p3, col_p4 = st.columns(4)
+            with col_p1:
+                pos_ticker = st.text_input("Ticker:", placeholder="BBCA.JK")
+            with col_p2:
+                pos_lot    = st.number_input("Lot:", min_value=1, value=1)
+            with col_p3:
+                pos_entry  = st.number_input("Harga Entry:", min_value=1, value=1000)
+            with col_p4:
+                pos_sl     = st.number_input("Stop Loss:", min_value=0, value=0)
+                pos_tp     = st.number_input("Take Profit:", min_value=0, value=0)
+            pos_note = st.text_input("Catatan:")
+            if st.form_submit_button("➕ Tambah Posisi"):
+                if pos_ticker:
+                    add_position(pos_ticker.upper(), pos_lot, pos_entry,
+                                  pos_sl if pos_sl > 0 else None,
+                                  pos_tp if pos_tp > 0 else None, pos_note)
+                    st.success("✅ Posisi ditambahkan!")
+                    st.rerun()
+
+    # Posisi aktif
+    st.subheader("📊 Posisi Aktif")
+    if not summary['positions']:
+        st.info("Belum ada posisi aktif.")
+    else:
+        for pos in summary['positions']:
+            pnl_c = "#00ff88" if pos['pnl_pct'] >= 0 else "#ff4444"
+            with st.expander(
+                f"{'📈' if pos['pnl_pct'] >= 0 else '📉'} {pos['ticker']} | "
+                f"{pos['lot']} lot | P&L: {pos['pnl_pct']:+.2f}%"
+            ):
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.metric("Entry", f"Rp {pos['entry_price']:,.0f}")
+                    st.metric("Harga Skrg", f"Rp {pos['curr_price']:,.0f}")
+                with c2:
+                    st.metric("P&L (Rp)", f"Rp {pos['pnl_rp']:,.0f}", f"{pos['pnl_pct']:+.2f}%")
+                    st.metric("Modal", f"Rp {pos['modal']:,.0f}")
+                with c3:
+                    if pos.get('sl'):
+                        st.metric("SL", f"Rp {pos['sl']:,.0f}")
+                    if pos.get('tp'):
+                        st.metric("TP", f"Rp {pos['tp']:,.0f}")
+
+                exit_price = st.number_input("Harga Jual:", min_value=1,
+                                              value=int(pos['curr_price']),
+                                              key=f"exit_{pos['ticker']}")
+                if st.button(f"💰 Tutup Posisi {pos['ticker']}", key=f"close_{pos['ticker']}"):
+                    result = close_position(pos['ticker'], exit_price)
+                    if result:
+                        st.success(f"✅ Posisi ditutup! P&L: {result['pnl_pct']:+.2f}%")
+                        st.rerun()
+
+    st.divider()
+
+    # Statistik histori
+    if stats['total_trades'] > 0:
+        st.subheader("📊 Statistik Trading")
+        cols = st.columns(4)
+        metric_card(cols[0], "Total Trade", stats['total_trades'])
+        metric_card(cols[1], "Win Rate", f"{stats['win_rate']}%",
+                    "#00ff88" if stats['win_rate'] >= 50 else "#ff4444")
+        metric_card(cols[2], "Best Trade", f"{stats['best_trade']:+.1f}%", "#00ff88")
+        metric_card(cols[3], "Worst Trade", f"{stats['worst_trade']:+.1f}%", "#ff4444")
+
+        history = get_trade_history()
+        if history:
+            st.markdown("**📋 Riwayat Trade:**")
+            hist_rows = [{'Ticker': t['ticker'],
+                'Entry': t.get('entry_date', '')[:10],
+                'Exit': t.get('exit_date', '')[:10],
+                'Entry Rp': f"Rp {t['entry_price']:,.0f}",
+                'Exit Rp': f"Rp {t['exit_price']:,.0f}",
+                'P&L': f"{t['pnl_pct']:+.2f}%",
+                'P&L Rp': f"Rp {t['pnl_rp']:,.0f}"
+            } for t in history]
+            st.dataframe(pd.DataFrame(hist_rows), use_container_width=True, hide_index=True)
+
+
+# ════════════════════════════════════════════════════════════
+# TAB 9 — RIWAYAT NOTIFIKASI
+# ════════════════════════════════════════════════════════════
+with tab_history:
+    st.markdown("### 📋 Riwayat Notifikasi")
+    st.markdown("Log semua sinyal STRONG BREAKOUT yang sudah dikirim.")
+    st.divider()
+
+    notif_history = st.session_state.get('notif_sent', [])
+
+    if not notif_history:
+        st.markdown("""
+        <div style='text-align:center; padding:50px; color:#8b949e;'>
+            <div style='font-size:3rem;'>📭</div>
+            <h3>Belum ada notifikasi</h3>
+        </div>""", unsafe_allow_html=True)
+    else:
+        st.success(f"✅ {len(notif_history)} notifikasi terkirim sesi ini")
+        df_notif = pd.DataFrame(notif_history)
+        st.dataframe(df_notif, use_container_width=True, hide_index=True)
+
+        csv = df_notif.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Export Log",
+            data=csv, file_name=f"notif_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
+
+        if st.button("🗑️ Hapus Riwayat"):
+            st.session_state['notif_sent'] = []
+            st.rerun()
+
+
+
+# ============================================================
+# app.py — Stock Breakout Detector (FULL FEATURES)
+# Fitur: Scanner · Backtest · Pattern Recognition · AI Confidence
+#         News Sentiment · WhatsApp · Leaderboard · Watchlist · Portfolio
+# ============================================================
+
+import streamlit as st
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import pandas as pd
+import time
+from datetime import datetime
+
+from scanner          import scan_all_stocks, score_stock
+from risk_manager     import get_full_trade_plan
+from backtester       import run_backtest, run_multi_backtest, create_backtest_chart
+from scheduler        import get_market_status, is_market_open
+from data_fetcher     import fetch_stock_data
+from pattern_recognition import analyze_patterns
+from ml_confidence    import predict_confidence, SKLEARN_AVAILABLE
+from news_sentiment   import analyze_news_sentiment
+from watchlist        import (get_watchlist, add_to_watchlist, remove_from_watchlist,
+                               get_portfolio, get_portfolio_summary, add_position,
+                               close_position, get_portfolio_stats, get_trade_history,
+                               update_watchlist_prices)
+from leaderboard      import (record_scan_results, get_weekly_leaderboard,
+                               get_leaderboard_dataframe, get_all_weeks,
+                               get_multi_week_comparison)
+from chart_upgrade    import create_upgraded_chart, detect_trendline, add_fibonacci_levels
+from indicators       import add_advanced_indicators, get_adx_signal, get_mfi_signal
+from sector_data      import SECTOR_DATA
+from bandarmologi     import (analyze_bandarmologi, calculate_cmf, calculate_ad_line,
+                               calculate_vpt, calculate_obv, calculate_vwap)
+
+# ─── Page Config ────────────────────────────────────────────
+st.set_page_config(
+    page_title = "📈 Stock Breakout Detector Pro",
+    page_icon  = "🔥",
+    layout     = "wide",
+    initial_sidebar_state = "expanded"
+)
+
+# ─── Global CSS ─────────────────────────────────────────────
+st.markdown("""
+<style>
+    .stApp { background-color: #0d1117; color: #e6edf3; }
+    .metric-box {
+        background: #161b22; border: 1px solid #30363d;
+        border-radius: 10px; padding: 14px; text-align: center;
+        margin-bottom: 8px;
+    }
+    .info-row {
+        display:flex; justify-content:space-between;
+        padding:5px 0; border-bottom:1px solid #21262d;
+    }
+    .badge {
+        padding: 2px 10px; border-radius: 12px;
+        font-size: 0.78rem; font-weight: bold;
+    }
+    .ai-box {
+        background: linear-gradient(135deg, #1a1f35, #0d1117);
+        border: 1px solid #1f6feb; border-radius: 10px; padding: 14px;
+    }
+    .news-box {
+        background: #161b22; border: 1px solid #30363d;
+        border-radius: 8px; padding: 12px; margin-bottom: 8px;
+    }
+    .pattern-box {
+        background: linear-gradient(135deg, #1a2535, #0d1117);
+        border: 1px solid #388bfd; border-radius: 10px; padding: 14px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+
+# ════════════════════════════════════════════════════════════
+# SESSION STATE
+# ════════════════════════════════════════════════════════════
+defaults = {
+    'results'       : [],
+    'trade_plans'   : {},
+    'ml_results'    : {},
+    'pattern_results': {},
+    'sentiment_results': {},
+    'last_scan_time': None,
+    'auto_refresh'  : False,
+    'scan_count'    : 0,
+    'notif_sent'    : [],
+    'tg_token'      : "",
+    'tg_chat_id'    : "",
+    'wa_phone'      : "",
+    'wa_key'        : "",
+    'modal'         : 10_000_000,
+    'tickers'       : ["BBCA","BBRI","BMRI","TLKM","ASII","UNVR","KLBF","ADRO","ANTM","MDKA"],
+    'ml_cache'      : {},
+    'enable_ml'     : False,
+    'enable_pattern': True,
+    'enable_sentiment': False,
+    'enable_tg'     : True,
+    'enable_wa'     : False,
+}
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
+
+
+# ════════════════════════════════════════════════════════════
+# HELPER FUNCTIONS
+# ════════════════════════════════════════════════════════════
+def parse_tickers(raw: str) -> list:
+    tickers = [t.strip().upper() for t in raw.replace('\n', ',').split(',') if t.strip()]
+    return list(dict.fromkeys(tickers))
+
+
+def metric_card(col, label: str, value, color: str = "#e6edf3"):
+    with col:
+        st.markdown(f"""
+        <div class='metric-box'>
+            <div style='color:#8b949e; font-size:0.78rem;'>{label}</div>
+            <div style='color:{color}; font-size:1.4rem; font-weight:bold;'>{value}</div>
+        </div>""", unsafe_allow_html=True)
+
+
+def render_score_bar(score: int, color: str):
+    st.markdown(f"""
+    <div style='display:flex; align-items:center; gap:10px; margin:6px 0;'>
+        <div style='flex:1; background:#30363d; border-radius:8px; height:10px; overflow:hidden;'>
+            <div style='width:{score}%; background:{color}; height:100%; border-radius:8px;'></div>
+        </div>
+        <span style='color:{color}; font-weight:bold; min-width:55px;'>{score}/100</span>
+    </div>""", unsafe_allow_html=True)
+
+
+def render_signal_row(name: str, signal: dict):
+    icon  = "✅" if signal['status'] else "❌"
+    color = "#00ff88" if signal['status'] else "#8b949e"
+    pts   = signal.get('points', 0)
+    st.markdown(f"""
+    <div class='info-row'>
+        <span style='color:#8b949e;'>{icon} {name}</span>
+        <span>
+            <span style='color:{color}; font-size:0.85rem;'>{signal['value']}</span>
+            <span style='color:#ffd700; font-size:0.8rem; margin-left:8px;'>+{pts}pts</span>
+        </span>
+    </div>""", unsafe_allow_html=True)
+
+
+def create_chart(df, ticker, trade_plan, timeframe="3 Bulan",
+                  show_fib=False, show_trendline=False) -> go.Figure:
+    """Wrapper: gunakan create_upgraded_chart dengan opsi advanced."""
+    return create_upgraded_chart(df, ticker, trade_plan,
+                                  timeframe=timeframe,
+                                  show_fib=show_fib,
+                                  show_trendline=show_trendline)
+
+
+def export_to_csv(results: list, trade_plans: dict) -> bytes:
+    rows = []
+    for r in results:
+        ticker = r['ticker']
+        tp = trade_plans.get(ticker, {})
+        rows.append({
+            'Tanggal': datetime.now().strftime('%Y-%m-%d %H:%M'),
+            'Ticker': ticker, 'Kategori': r['category'], 'Skor': r['score'],
+            'Harga': r['close'], 'Volume Ratio': r['volume_ratio'], 'RSI': r['rsi'],
+            'Entry': r['close'],
+            'SL': tp.get('sl', {}).get('recommended', ''),
+            'TP1': tp.get('tp', {}).get('tp1', ''), 'TP2': tp.get('tp', {}).get('tp2', ''),
+            'TP3': tp.get('tp', {}).get('tp3', ''),
+            'Risk %': tp.get('sl', {}).get('risk_pct', ''),
+            'Max Lot': tp.get('position', {}).get('lot', ''),
+        })
+    return pd.DataFrame(rows).to_csv(index=False).encode('utf-8')
+
+
+def run_scan(tickers: list, modal: float, prog=None,
+             enable_ml: bool = False, enable_pattern: bool = True,
+             enable_sentiment: bool = False) -> tuple:
+    results, trade_plans = [], {}
+    ml_results, pattern_results, sentiment_results = {}, {}, {}
+
+    for i, ticker in enumerate(tickers):
+        if prog:
+            prog.progress((i+1)/len(tickers), f"📡 {ticker} ({i+1}/{len(tickers)})...")
+
+        df = fetch_stock_data(ticker)
+        if df is None:
+            continue
+
+        result = score_stock(df)
+        if result:
+            result['ticker'] = ticker
+            results.append(result)
+            trade_plans[ticker] = get_full_trade_plan(
+                result['close'], result['atr'], result['support'], modal,
+                adx             = result.get('adx', 0),
+                bandar_fase     = result.get('bandar_fase', ''),
+                bandar_strength = result.get('bandar_strength', 50),
+                cmf             = result.get('cmf', 0),
+            )
+
+            # 🆕 Chart Pattern Recognition
+            if enable_pattern:
+                try:
+                    pattern_results[ticker] = analyze_patterns(df)
+                except Exception as e:
+                    print(f"[APP] Pattern error {ticker}: {e}")
+
+            # 🆕 AI Confidence
+            if enable_ml and SKLEARN_AVAILABLE:
+                try:
+                    ml_results[ticker] = predict_confidence(
+                        ticker, df, st.session_state['ml_cache'])
+                except Exception as e:
+                    print(f"[APP] ML error {ticker}: {e}")
+
+            # 🆕 News Sentiment
+            if enable_sentiment:
+                try:
+                    sentiment_results[ticker] = analyze_news_sentiment(ticker)
+                except Exception as e:
+                    print(f"[APP] Sentiment error {ticker}: {e}")
+
+        time.sleep(0.05)
+
+    results.sort(key=lambda x: x['score'], reverse=True)
+    return results, trade_plans, ml_results, pattern_results, sentiment_results
+
+
+# ════════════════════════════════════════════════════════════
+# SIDEBAR
+# ════════════════════════════════════════════════════════════
+with st.sidebar:
+    st.markdown("## 📈 Breakout Detector Pro")
+
+    mkt = get_market_status()
+    st.markdown(f"""
+    <div style='background:#161b22; border:1px solid #30363d; border-radius:8px;
+                padding:12px; margin-bottom:12px;'>
+        <div style='color:{mkt["status_color"]}; font-weight:bold;'>{mkt["status_text"]}</div>
+        <div style='color:#8b949e; font-size:0.83rem;'>{mkt["day_name"]}, {mkt["date_str"]}</div>
+        <div style='color:#8b949e; font-size:0.83rem;'>🕐 {mkt["time_str"]} WIB</div>
+        <div style='color:#8b949e; font-size:0.78rem; margin-top:4px;'>{mkt["info_text"]}</div>
+    </div>""", unsafe_allow_html=True)
+
+    st.divider()
+
+    # Ticker input
+    st.subheader("📋 Daftar Saham")
+
+    scan_mode = st.radio(
+        "Mode Scan:",
+        ["🎯 Custom (manual)", "⚡ Top 20 IDX", "🔥 Semua IDX (956 saham)", "🏭 Filter Sektor"],
+        index=0
+    )
+
+    if scan_mode == "⚡ Top 20 IDX":
+        st.session_state['tickers'] = ["BBCA","BBRI","BMRI","TLKM","ASII","UNVR","KLBF","ADRO","ANTM","MDKA","BRPT","TPIA","CUAN","MDKA","MTEL","BYAN","PTBA","INDF","SMGR","ICBP"]
+        ticker_input = ", ".join(["BBCA","BBRI","BMRI","TLKM","ASII","UNVR","KLBF","ADRO","ANTM","MDKA","BRPT","TPIA","CUAN","MDKA","MTEL","BYAN","PTBA","INDF","SMGR","ICBP"])
+        st.info(f"✅ {len(["BBCA","BBRI","BMRI","TLKM","ASII","UNVR","KLBF","ADRO","ANTM","MDKA","BRPT","TPIA","CUAN","MDKA","MTEL","BYAN","PTBA","INDF","SMGR","ICBP"])} saham top IDX")
+    elif scan_mode == "🔥 Semua IDX (956 saham)":
+        st.session_state['tickers'] = ALL_TICKERS
+        ticker_input = ", ".join(ALL_TICKERS)
+        st.warning(f"⚠️ {len(ALL_TICKERS)} saham — butuh ~30 menit")
+    elif scan_mode == "🏭 Filter Sektor":
+        all_sectors = sorted(set(SECTOR_DATA.values()))
+        selected_sector = st.selectbox("Pilih Sektor:", all_sectors)
+        sector_tickers = [t for t, s in SECTOR_DATA.items() if s == selected_sector]
+        st.session_state['tickers'] = sector_tickers
+        ticker_input = ", ".join(sector_tickers)
+        st.info(f"✅ {len(sector_tickers)} saham sektor {selected_sector}")
+    else:
+        ticker_input = st.text_area("Ticker (koma/enter):",
+            value=", ".join(st.session_state['tickers']), height=110)
+        uploaded = st.file_uploader("Upload CSV (kolom: ticker)", type=['csv'])
+        if uploaded:
+            try:
+                df_up = pd.read_csv(uploaded)
+                if 'ticker' in df_up.columns:
+                    ticker_input = ", ".join(df_up['ticker'].astype(str).tolist())
+                    st.success(f"✅ {len(df_up)} ticker dimuat!")
+            except Exception as e:
+                st.error(f"❌ {e}")
+
+    st.divider()
+
+    # Settings
+    st.subheader("⚙️ Pengaturan")
+    min_score = st.slider("Skor Minimum", 0, 100, 40, step=5)
+    modal = st.number_input("Modal Trading (Rp):", min_value=1_000_000,
+                             max_value=10_000_000_000,
+                             value=st.session_state['modal'], step=1_000_000)
+    st.session_state['modal'] = modal
+
+    st.divider()
+
+    # Fitur Tambahan
+    st.subheader("🧠 Fitur Analisis")
+    enable_pattern   = st.toggle("📊 Chart Pattern", value=st.session_state['enable_pattern'])
+    enable_ml        = st.toggle(
+        "🤖 AI Confidence" + (" ✅" if SKLEARN_AVAILABLE else " ❌ (install scikit-learn)"),
+        value=st.session_state['enable_ml'],
+        disabled=not SKLEARN_AVAILABLE
+    )
+    enable_sentiment = st.toggle("📰 News Sentiment", value=st.session_state['enable_sentiment'])
+    st.session_state['enable_pattern']   = enable_pattern
+    st.session_state['enable_ml']        = enable_ml
+    st.session_state['enable_sentiment'] = enable_sentiment
+
+    st.divider()
+
+    # Auto-Refresh
+    st.subheader("🔄 Auto-Refresh")
+    auto_refresh = st.toggle("Auto-refresh saat market buka",
+                              value=st.session_state['auto_refresh'])
+    st.session_state['auto_refresh'] = auto_refresh
+    if auto_refresh and is_market_open():
+        st.success(f"✅ Aktif ({300//60} menit)")
+    elif auto_refresh:
+        st.warning("⏸️ Market tutup")
+
+    st.divider()
+
+    # Notifikasi
+    st.subheader("🔔 Notifikasi")
+    with st.expander("📱 Telegram"):
+        tg_token  = st.text_input("Bot Token:", value=st.session_state['tg_token'], type="password")
+        tg_chatid = st.text_input("Chat ID:", value=st.session_state['tg_chat_id'])
+        st.session_state['tg_token']   = tg_token
+        st.session_state['tg_chat_id'] = tg_chatid
+        enable_tg = st.toggle("Kirim ke Telegram", value=st.session_state['enable_tg'])
+        st.session_state['enable_tg'] = enable_tg
+        if st.button("🧪 Test Telegram"):
+            ok = test_telegram_connection(tg_token, tg_chatid)
+            st.success("✅ OK!") if ok else st.error("❌ Gagal!")
+
+    with st.expander("💬 WhatsApp (CallMeBot)"):
+        wa_phone = st.text_input("Nomor WA:", value=st.session_state['wa_phone'],
+                                  placeholder="628xxxxxxxxxx")
+        wa_key   = st.text_input("API Key:", value=st.session_state['wa_key'], type="password")
+        st.session_state['wa_phone'] = wa_phone
+        st.session_state['wa_key']   = wa_key
+        enable_wa = st.toggle("Kirim ke WhatsApp", value=st.session_state['enable_wa'])
+        st.session_state['enable_wa'] = enable_wa
+        st.caption("Daftar gratis di callmebot.com")
+        if st.button("🧪 Test WhatsApp"):
+            ok = test_whatsapp_connection(wa_phone, wa_key)
+            st.success("✅ OK!") if ok else st.error("❌ Gagal!")
+
+    st.divider()
+    scan_button = st.button("🔍 MULAI SCAN", type="primary", use_container_width=True)
+    if st.session_state['last_scan_time']:
+        st.caption(f"Scan terakhir: {st.session_state['last_scan_time']}")
+    st.caption(f"Total scan: {st.session_state['scan_count']}x")
+
+
+# ════════════════════════════════════════════════════════════
+# AUTO-REFRESH LOGIC
+# ════════════════════════════════════════════════════════════
+should_scan = scan_button
+if st.session_state['auto_refresh'] and is_market_open():
+    last = st.session_state['last_scan_time']
+    if last:
+        try:
+            last_dt = datetime.strptime(last, '%H:%M:%S')
+            now_dt  = datetime.now()
+            elapsed = (now_dt - now_dt.replace(
+                hour=last_dt.hour, minute=last_dt.minute, second=last_dt.second)).seconds
+            if elapsed >= 300:
+                should_scan = True
+        except Exception:
+            pass
+    else:
+        should_scan = True
+
+
+# ════════════════════════════════════════════════════════════
+# HEADER & TABS
+# ════════════════════════════════════════════════════════════
+st.markdown("""
+<h1 style='text-align:center; color:#00ff88; margin-bottom:4px;'>
+    🔥 Stock Breakout Detector Pro
+</h1>
+<p style='text-align:center; color:#8b949e;'>
+    Scanner · AI Confidence · Chart Patterns · News Sentiment · Leaderboard · Portfolio
+</p>
+""", unsafe_allow_html=True)
+
+tab_scanner, tab_patterns, tab_ai, tab_news, tab_bandar, tab_backtest, tab_leaderboard, tab_watchlist, tab_portfolio, tab_history = st.tabs([
+    "📡 Scanner",
+    "📊 Patterns",
+    "🤖 AI Confidence",
+    "📰 Berita",
+    "🐋 Bandarmologi",
+    "🔬 Backtest",
+    "🏆 Leaderboard",
+    "👀 Watchlist",
+    "💼 Portfolio",
+    "📋 Notifikasi"
+])
+
+
+# ════════════════════════════════════════════════════════════
+# SCAN EXECUTION
+# ════════════════════════════════════════════════════════════
+if should_scan:
+    tickers = parse_tickers(ticker_input)
+    st.session_state['tickers'] = tickers
+
+    if not tickers:
+        st.error("❌ Masukkan minimal satu ticker!")
+    else:
+        with tab_scanner:
+            st.info(f"🔍 Scanning {len(tickers)} saham...")
+            prog_ph = st.empty()
+            prog    = prog_ph.progress(0, "Memulai...")
+
+        results, trade_plans, ml_results, pattern_results, sentiment_results = run_scan(
+            tickers, modal, prog,
+            enable_ml        = st.session_state['enable_ml'],
+            enable_pattern   = st.session_state['enable_pattern'],
+            enable_sentiment = st.session_state['enable_sentiment']
+        )
+
+        with tab_scanner:
+            prog_ph.empty()
+
+        filtered = [r for r in results if r['score'] >= min_score]
+        st.session_state.update({
+            'results'           : filtered,
+            'trade_plans'       : trade_plans,
+            'ml_results'        : ml_results,
+            'pattern_results'   : pattern_results,
+            'sentiment_results' : sentiment_results,
+            'last_scan_time'    : datetime.now().strftime('%H:%M:%S'),
+            'scan_count'        : st.session_state['scan_count'] + 1
+        })
+
+        # Update leaderboard
+        if filtered:
+            record_scan_results(filtered)
+            update_watchlist_prices(filtered)
+
+        # Kirim notifikasi
+        if filtered:
+            strong = [r for r in filtered if r['score'] >= 70]
+            if strong:
+                sent = notify_strong_breakouts(
+                    strong, trade_plans,
+                    token=st.session_state['tg_token'],
+                    chat_id=st.session_state['tg_chat_id'],
+                    wa_phone=st.session_state['wa_phone'],
+                    wa_key=st.session_state['wa_key'],
+                    use_telegram=st.session_state['enable_tg'],
+                    use_whatsapp=st.session_state['enable_wa'],
+                    ml_results=ml_results,
+                    patterns=pattern_results,
+                    sentiments=sentiment_results
+                )
+                if sent['telegram'] > 0 or sent['whatsapp'] > 0:
+                    for r in strong:
+                        t = r['ticker']
+                        if t in trade_plans:
+                            st.session_state['notif_sent'].append({
+                                'waktu': datetime.now().strftime('%H:%M:%S'),
+                                'ticker': t, 'skor': r['score'],
+                                'harga': r['close'],
+                                'kategori': r['category']
+                            })
+
+
+# ════════════════════════════════════════════════════════════
+# TAB 1 — SCANNER
+# ════════════════════════════════════════════════════════════
+with tab_scanner:
+    results     = st.session_state.get('results', [])
+    trade_plans = st.session_state.get('trade_plans', {})
+
+    if not results:
+        st.markdown("""
+        <div style='text-align:center; padding:60px; color:#8b949e;'>
+            <div style='font-size:3.5rem;'>📡</div>
+            <h3>Belum ada data scan</h3>
+            <p>Klik <b>MULAI SCAN</b> di sidebar untuk memulai.</p>
+        </div>""", unsafe_allow_html=True)
+    else:
+        strong    = sum(1 for r in results if r['score'] >= 70)
+        potential = sum(1 for r in results if 50 <= r['score'] < 70)
+        watchlist_count = sum(1 for r in results if 40 <= r['score'] < 50)
+
+        cols = st.columns(6)
+        metric_card(cols[0], "📋 Di-scan",   len(results))
+        metric_card(cols[1], "🔥 Strong",    strong,         "#00ff88")
+        metric_card(cols[2], "⚡ Potential", potential,      "#ffd700")
+        metric_card(cols[3], "👀 Watchlist",  watchlist_count, "#ff9500")
+        metric_card(cols[4], "🔄 Scan ke-",  st.session_state['scan_count'], "#1f6feb")
+        metric_card(cols[5], "🕐 Jam Scan",  st.session_state.get('last_scan_time', '-'), "#8b949e")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Tabel ringkasan
+        st.subheader("🗂️ Tabel Hasil Scan")
+        table_rows = []
+        for r in results:
+            t  = r['ticker']
+            tp = trade_plans.get(t, {})
+            sl_d = tp.get('sl', {}); tp_d = tp.get('tp', {})
+            pat = st.session_state['pattern_results'].get(t, {})
+            ml  = st.session_state['ml_results'].get(t, {})
+            bandar_adj = r.get('bandar_adj', 0)
+            bandar_adj_str = f"+{bandar_adj}" if bandar_adj > 0 else str(bandar_adj)
+
+            table_rows.append({
+                'Ticker'      : t,
+                'Kategori'    : r['category'],
+                'Skor'        : r['score'],
+                'Base'        : r.get('base_score', r['score']),
+                '🐋 Bandar'   : bandar_adj_str,
+                '🐋 Fase'     : r.get('bandar_fase', 'N/A').split('(')[0].strip(),
+                'CMF'         : f"{r.get('cmf', 0):+.3f}",
+                'VWAP'        : '✅' if r.get('above_vwap') else '❌',
+                'Harga'       : f"Rp {r['close']:,.0f}",
+                'Volume'      : f"{r['volume_ratio']:.1f}x",
+                'RSI'         : f"{r['rsi']:.1f}",
+                'ADX'         : f"{r.get('adx', 0):.0f}",
+                'AI Conf'     : f"{ml.get('confidence', '-')}%" if ml.get('available') else "-",
+                'Pattern'     : pat.get('best', {}).get('name', '-') if pat.get('best', {}).get('detected') else "-",
+                'SL'          : f"Rp {sl_d.get('recommended', 0):,.0f}",
+                'TP2 ⭐'      : f"Rp {tp_d.get('tp2', 0):,.0f} (+{tp_d.get('tp2_pct', 0):.1f}%)",
+            })
+
+        df_table = pd.DataFrame(table_rows)
+        st.dataframe(df_table, use_container_width=True, hide_index=True,
+            column_config={
+                "Skor": st.column_config.ProgressColumn("Skor", min_value=0, max_value=130, format="%d"),
+                "Base": st.column_config.NumberColumn("Base (7 ind.)", format="%d"),
+                "🐋 Bandar": st.column_config.TextColumn("🐋 Adj"),
+            })
+
+        # Export CSV
+        col_exp, _ = st.columns([1, 4])
+        with col_exp:
+            st.download_button("📥 Export CSV", export_to_csv(results, trade_plans),
+                file_name=f"scan_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv")
+
+        st.divider()
+
+        # Detail kartu per saham
+        st.subheader("📈 Detail Per Saham")
+        signal_labels = {
+            'volume': ('📊', 'Volume Spike'), 'resistance': ('📈', 'Breakout Resistance'),
+            'rsi': ('📉', 'RSI Zone'), 'macd': ('🔀', 'MACD'),
+            'ma': ('📏', 'Moving Average'), 'bb': ('🎯', 'Bollinger Bands'),
+            'candle': ('🕯️', 'Pola Candle'),
+        }
+
+        for r in results:
+            t  = r['ticker']
+            tp = trade_plans.get(t)
+            if not tp:
+                continue
+
+            sl_d = tp['sl']; tp_d = tp['tp']; pos_d = tp['position']
+
+            with st.expander(
+                f"{r['category']} | {t} | Skor {r['score']}/100 | Rp {r['close']:,.0f}",
+                expanded=(r['score'] >= 70)
+            ):
+                col_l, col_r = st.columns(2)
+
+                with col_l:
+                    st.markdown("#### 📌 Rencana Trading")
+                    render_score_bar(r['score'], r['cat_color'])
+
+                    # Skor breakdown
+                    base_s  = r.get('base_score', r['score'])
+                    bandar_s = r.get('bandar_adj', 0)
+                    if bandar_s != 0:
+                        adj_color = '#00ff88' if bandar_s > 0 else '#ff4444'
+                        adj_sign  = '+' if bandar_s > 0 else ''
+                        st.markdown(
+                            f"<div style='font-size:0.82em; color:#8b949e; margin:-8px 0 8px 0;'>"
+                            f"Base teknikal: <b style='color:#e6edf3'>{base_s}</b> "
+                            f"| Bandar adj: <b style='color:{adj_color}'>{adj_sign}{bandar_s}</b> "
+                            f"| Total: <b style='color:{r['cat_color']}'>{r['score']}</b>"
+                            f"</div>",
+                            unsafe_allow_html=True
+                        )
+                        # Fase bandar mini
+                        fase_c = r.get('bandar_fase_color', '#8b949e')
+                        fase   = r.get('bandar_fase', '')
+                        st.markdown(
+                            f"<div style='background:{fase_c}22; border-left:3px solid {fase_c}; "
+                            f"padding:4px 10px; border-radius:4px; margin-bottom:8px; font-size:0.85em;'>"
+                            f"🐋 {fase}</div>",
+                            unsafe_allow_html=True
+                        )
+
+                    m1, m2 = st.columns(2)
+                    with m1:
+                        st.metric("Entry", f"Rp {r['close']:,.0f}")
+                        st.metric("TP1",   f"Rp {tp_d['tp1']:,.0f}", f"+{tp_d['tp1_pct']:.1f}%")
+                        st.metric("TP2 ⭐", f"Rp {tp_d['tp2']:,.0f}", f"+{tp_d['tp2_pct']:.1f}%")
+                    with m2:
+                        st.metric("SL",   f"Rp {sl_d['recommended']:,.0f}", f"-{sl_d['risk_pct']:.1f}%")
+                        st.metric("TP3",  f"Rp {tp_d['tp3']:,.0f}", f"+{tp_d['tp3_pct']:.1f}%")
+
+                    st.info(
+                        f"💰 Modal Rp {st.session_state['modal']:,.0f} | Risk 2%\n\n"
+                        f"👉 Max **{pos_d['lot']} lot ({pos_d['lembar']:,} lembar)**\n\n"
+                        f"Maks. loss: Rp {pos_d['max_loss']:,.0f}"
+                    )
+
+                    # Tampilkan adjustment note jika SL/TP disesuaikan
+                    adj_note = tp.get('adjustment_note', '')
+                    if adj_note and adj_note != "Standar (tidak ada penyesuaian)":
+                        st.caption(f"⚙️ SL/TP disesuaikan: {adj_note}")
+
+                    # Bandar bonuses/penalties detail
+                    bandar_bonuses = r.get('bandar_bonuses', [])
+                    if bandar_bonuses:
+                        with st.expander("🐋 Detail Sinyal Bandarmologi"):
+                            for b in bandar_bonuses:
+                                color = '#00ff88' if b.startswith('+') else '#ff4444' if b.startswith('-') else '#ffd700'
+                                st.markdown(f"<span style='color:{color}; font-size:0.85em;'>• {b}</span>", unsafe_allow_html=True)
+
+                    # Tambah ke watchlist
+                    wl = get_watchlist()
+                    if t in wl:
+                        if st.button(f"❌ Hapus dari Watchlist", key=f"rm_wl_{t}"):
+                            remove_from_watchlist(t)
+                            st.rerun()
+                    else:
+                        if st.button(f"👀 Tambah ke Watchlist", key=f"add_wl_{t}"):
+                            add_to_watchlist(t, scan_result=r)
+                            st.success("✅ Ditambahkan!")
+
+                with col_r:
+                    st.markdown("#### 📊 Sinyal Indikator")
+                    for key, (icon, label) in signal_labels.items():
+                        if key in r.get('signals', {}):
+                            render_signal_row(f"{icon} {label}", r['signals'][key])
+
+                # Chart
+                st.markdown("#### 📉 Chart Teknikal")
+                if 'df' in r:
+                    chart_col1, chart_col2, chart_col3 = st.columns(3)
+                    with chart_col1:
+                        tf_opt = st.selectbox("Timeframe:", ["1 Bulan","3 Bulan","6 Bulan","1 Tahun"],
+                                               index=1, key=f"tf_{t}")
+                    with chart_col2:
+                        show_fib = st.toggle("📐 Fibonacci", value=False, key=f"fib_{t}")
+                    with chart_col3:
+                        show_tl = st.toggle("📏 Trendline", value=True, key=f"tl_{t}")
+
+                    # ADX & MFI
+                    df_adv = add_advanced_indicators(r['df'].copy())
+                    last   = df_adv.iloc[-1]
+                    adx_val = float(last['ADX']) if pd.notna(last.get('ADX')) else 0
+                    mfi_val = float(last['MFI']) if pd.notna(last.get('MFI')) else 50
+                    adx_sig = get_adx_signal(adx_val)
+                    mfi_sig = get_mfi_signal(mfi_val)
+                    sector  = SECTOR_DATA.get(t, 'N/A')
+
+                    adv_c1, adv_c2, adv_c3 = st.columns(3)
+                    with adv_c1:
+                        st.markdown(f"**ADX:** {adx_sig['icon']} <span style='color:{adx_sig['color']};'>{adx_val:.1f} — {adx_sig['status']}</span>", unsafe_allow_html=True)
+                    with adv_c2:
+                        st.markdown(f"**MFI:** {mfi_sig['icon']} <span style='color:{mfi_sig['color']};'>{mfi_val:.1f} — {mfi_sig['status']}</span>", unsafe_allow_html=True)
+                    with adv_c3:
+                        st.markdown(f"**Sektor:** `{sector}`")
+
+                    st.plotly_chart(create_chart(r['df'], t, tp,
+                        timeframe=tf_opt, show_fib=show_fib, show_trendline=show_tl),
+                        use_container_width=True)
+
+        if st.session_state['auto_refresh'] and is_market_open():
+            time.sleep(300)
+            st.rerun()
+
+
+# ════════════════════════════════════════════════════════════
+# TAB 2 — CHART PATTERNS
+# ════════════════════════════════════════════════════════════
+with tab_patterns:
+    st.markdown("### 📊 Chart Pattern Recognition")
+    st.markdown("Deteksi otomatis: Double Top/Bottom, Head & Shoulders, Ascending Triangle, Bull Flag, Cup & Handle")
+    st.divider()
+
+    pattern_results = st.session_state.get('pattern_results', {})
+    results = st.session_state.get('results', [])
+
+    if not pattern_results:
+        st.info("💡 Aktifkan **Chart Pattern** di sidebar, lalu jalankan scan.")
+        # Manual analysis
+        st.subheader("🔍 Analisis Pattern Manual")
+        manual_ticker = st.text_input("Masukkan ticker:", placeholder="BBCA.JK")
+        if st.button("🔍 Analisis Pattern") and manual_ticker:
+            with st.spinner("Menganalisis..."):
+                df_manual = fetch_stock_data(manual_ticker.upper().strip())
+                if df_manual is not None:
+                    pattern_results = {manual_ticker.upper(): analyze_patterns(df_manual)}
+                    st.session_state['pattern_results'] = pattern_results
+                else:
+                    st.error("❌ Data tidak tersedia.")
+
+    if pattern_results:
+        # Summary
+        all_patterns_flat = []
+        for ticker, pr in pattern_results.items():
+            for pat in pr.get('all', []):
+                all_patterns_flat.append({**pat, 'ticker': ticker})
+
+        if all_patterns_flat:
+            bullish_count = sum(1 for p in all_patterns_flat if p['signal'] == 'BULLISH')
+            bearish_count = sum(1 for p in all_patterns_flat if p['signal'] == 'BEARISH')
+
+            c1, c2, c3 = st.columns(3)
+            metric_card(c1, "📊 Total Pattern", len(all_patterns_flat))
+            metric_card(c2, "🟢 Bullish",       bullish_count, "#00ff88")
+            metric_card(c3, "🔴 Bearish",       bearish_count, "#ff4444")
+            st.markdown("<br>", unsafe_allow_html=True)
+
+        for ticker, pr in pattern_results.items():
+            best = pr.get('best', {})
+            all_pats = pr.get('all', [])
+
+            if not all_pats:
+                continue
+
+            with st.expander(
+                f"{'🟢' if best.get('signal')=='BULLISH' else '🔴'} {ticker} — "
+                f"{best.get('name', 'No Pattern')} | {pr.get('count', 0)} pattern",
+                expanded=True
+            ):
+                for pat in all_pats:
+                    signal_color = "#00ff88" if pat['signal'] == 'BULLISH' else "#ff4444"
+                    conf_bar = int(pat['confidence'] / 20)
+                    conf_dots = "🟢" * conf_bar + "⚪" * (5 - conf_bar)
+
+                    st.markdown(f"""
+                    <div class='pattern-box' style='margin-bottom:12px;'>
+                        <div style='display:flex; justify-content:space-between; align-items:center;'>
+                            <span style='font-size:1.05rem; font-weight:bold; color:{signal_color};'>
+                                {pat['name']}
+                            </span>
+                            <span style='color:#8b949e; font-size:0.85rem;'>
+                                Sinyal: <b style='color:{signal_color}'>{pat['signal']}</b>
+                            </span>
+                        </div>
+                        <div style='color:#8b949e; font-size:0.85rem; margin:6px 0;'>
+                            {pat.get('description', '')}
+                        </div>
+                        <div style='display:flex; gap:20px; margin-top:8px;'>
+                            <span>Confidence: {conf_dots} <b style='color:{signal_color};'>
+                                {pat['confidence']}%</b></span>
+                            <span style='color:#8b949e;'>
+                                {'✅ Terkonfirmasi' if pat.get('confirmed') else '⏳ Belum konfirmasi'}
+                            </span>
+                        </div>
+                    """, unsafe_allow_html=True)
+
+                    # Price levels
+                    pl = pat.get('price_levels', {})
+                    if pl:
+                        lvl_str = " | ".join(f"<b>{k.replace('_',' ').title()}</b>: Rp {v:,.0f}"
+                                             for k, v in pl.items() if isinstance(v, (int, float)))
+                        st.markdown(f"<div style='color:#8b949e; font-size:0.82rem;'>{lvl_str}</div>",
+                                    unsafe_allow_html=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ════════════════════════════════════════════════════════════
+# TAB 3 — AI CONFIDENCE
+# ════════════════════════════════════════════════════════════
+with tab_ai:
+    st.markdown("### 🤖 AI Signal Confidence")
+    st.markdown(
+        "Model Machine Learning (Random Forest) dilatih dari data historis 180 hari "
+        "untuk memprediksi probabilitas breakout berhasil."
+    )
+    st.divider()
+
+    if not SKLEARN_AVAILABLE:
+        st.error("❌ **scikit-learn belum terinstall!**\n\nJalankan: `pip install scikit-learn`")
+    else:
+        ml_results = st.session_state.get('ml_results', {})
+
+        if not ml_results:
+            st.info("💡 Aktifkan **AI Confidence** di sidebar, lalu jalankan scan.")
+
+            # Manual AI
+            st.subheader("🔍 Analisis AI Manual")
+            ai_ticker = st.text_input("Masukkan ticker:", placeholder="BBCA.JK", key="ai_ticker")
+            if st.button("🤖 Analisis AI") and ai_ticker:
+                with st.spinner("Training model & prediksi..."):
+                    df_ai = fetch_stock_data(ai_ticker.upper().strip(), days=200)
+                    if df_ai is not None:
+                        ai_r = predict_confidence(
+                            ai_ticker.upper(), df_ai, st.session_state['ml_cache'])
+                        ml_results = {ai_ticker.upper(): ai_r}
+                    else:
+                        st.error("❌ Data tidak tersedia.")
+
+        if ml_results:
+            # Sort by confidence
+            sorted_ml = sorted(ml_results.items(),
+                                key=lambda x: x[1].get('confidence', 0), reverse=True)
+
+            # Summary
+            available = [(t, r) for t, r in sorted_ml if r.get('available')]
+            if available:
+                avg_conf = sum(r['confidence'] for _, r in available) / len(available)
+                high_conf = sum(1 for _, r in available if r['confidence'] >= 70)
+                c1, c2, c3 = st.columns(3)
+                metric_card(c1, "📊 Dianalisis", len(available))
+                metric_card(c2, "🟢 High Conf (≥70%)", high_conf, "#00ff88")
+                metric_card(c3, "📈 Avg Confidence", f"{avg_conf:.0f}%",
+                            "#00ff88" if avg_conf >= 60 else "#ffd700")
+                st.markdown("<br>", unsafe_allow_html=True)
+
+            for ticker, ml in sorted_ml:
+                if not ml.get('available'):
+                    continue
+
+                conf  = ml['confidence']
+                color = ml['color']
+                conf_bar_filled = int(conf / 10)
+
+                with st.expander(f"🤖 {ticker} — {ml['label']} | {conf}% Confidence"):
+                    col_a, col_b = st.columns([2, 1])
+
+                    with col_a:
+                        st.markdown(f"""
+                        <div class='ai-box'>
+                            <div style='font-size:1.1rem; font-weight:bold; color:{color};
+                                        margin-bottom:10px;'>{ml['label']}</div>
+                            <div style='display:flex; align-items:center; gap:10px; margin-bottom:10px;'>
+                                <div style='flex:1; background:#30363d; border-radius:6px;
+                                            height:16px; overflow:hidden;'>
+                                    <div style='width:{conf}%; background:{color}; height:100%;
+                                                border-radius:6px;'></div>
+                                </div>
+                                <span style='color:{color}; font-size:1.2rem;
+                                             font-weight:bold;'>{conf}%</span>
+                            </div>
+                            <div style='color:#8b949e; font-size:0.85rem;'>
+                                CV Accuracy Model: <b style='color:#e6edf3;'>{ml.get('accuracy', 0):.1f}%</b> |
+                                Training data: <b style='color:#e6edf3;'>{ml.get('n_samples', 0)} sampel</b>
+                            </div>
+                        </div>""", unsafe_allow_html=True)
+
+                    with col_b:
+                        st.markdown("**Top Features:**")
+                        for feat_name, imp in ml.get('feat_importance', []):
+                            imp_pct = int(imp * 100)
+                            st.markdown(f"""
+                            <div style='margin:4px 0;'>
+                                <div style='color:#8b949e; font-size:0.78rem;'>{feat_name}</div>
+                                <div style='background:#30363d; border-radius:4px; height:6px;'>
+                                    <div style='width:{imp_pct*5}%; background:#1f6feb;
+                                                height:100%; border-radius:4px;'></div>
+                                </div>
+                            </div>""", unsafe_allow_html=True)
+
+
+# ════════════════════════════════════════════════════════════
+# TAB 4 — NEWS SENTIMENT
+# ════════════════════════════════════════════════════════════
+with tab_news:
+    st.markdown("### 📰 News Sentiment Analysis")
+    st.markdown("Analisis sentimen berita terbaru dari Yahoo Finance untuk setiap saham.")
+    st.divider()
+
+    sentiment_results = st.session_state.get('sentiment_results', {})
+
+    if not sentiment_results:
+        st.info("💡 Aktifkan **News Sentiment** di sidebar, lalu jalankan scan.")
+        # Manual news
+        st.subheader("🔍 Cari Berita Manual")
+        news_ticker = st.text_input("Ticker:", placeholder="BBCA.JK", key="news_ticker")
+        if st.button("📰 Ambil Berita") and news_ticker:
+            with st.spinner("Mengambil berita..."):
+                sentiment_results = {news_ticker.upper(): analyze_news_sentiment(news_ticker.upper())}
+                st.session_state['sentiment_results'] = sentiment_results
+
+    if sentiment_results:
+        for ticker, sent in sentiment_results.items():
+            if not sent.get('available'):
+                st.warning(f"📭 {ticker}: Berita tidak tersedia")
+                continue
+
+            color = sent['color']
+            with st.expander(
+                f"📰 {ticker} — {sent['label']} | Skor {sent['avg_score']:.0f}/100 | "
+                f"{sent['article_count']} artikel",
+                expanded=True
+            ):
+                c1, c2, c3, c4 = st.columns(4)
+                metric_card(c1, "📊 Skor Sentimen", f"{sent['avg_score']:.0f}/100", color)
+                metric_card(c2, "😊 Positif", sent['pos_articles'], "#00ff88")
+                metric_card(c3, "😟 Negatif", sent['neg_articles'], "#ff4444")
+                metric_card(c4, "😐 Netral",  sent['neutral_articles'], "#ffd700")
+
+                st.markdown("<br>", unsafe_allow_html=True)
+
+                for article in sent.get('articles', []):
+                    art_sent  = article.get('sentiment', {})
+                    art_color = art_sent.get('color', '#8b949e')
+                    art_label = art_sent.get('label', '')
+                    hours_ago = article.get('hours_ago', 999)
+                    time_str  = f"{hours_ago}j lalu" if hours_ago < 24 else article.get('published', '')
+
+                    st.markdown(f"""
+                    <div class='news-box'>
+                        <div style='display:flex; justify-content:space-between;'>
+                            <span style='color:{art_color}; font-size:0.8rem;
+                                         font-weight:bold;'>{art_label}</span>
+                            <span style='color:#8b949e; font-size:0.78rem;'>🕐 {time_str}</span>
+                        </div>
+                        <div style='color:#e6edf3; margin:4px 0; font-size:0.9rem;'>
+                            {article['title'][:120]}
+                        </div>
+                        <div style='color:#8b949e; font-size:0.78rem;'>
+                            Skor: <b style='color:{art_color};'>{art_sent.get('score', 0):.0f}</b>/100
+                        </div>
+                    </div>""", unsafe_allow_html=True)
+
+
+# ════════════════════════════════════════════════════════════
+# TAB 5 — BANDARMOLOGI
+# ════════════════════════════════════════════════════════════
+with tab_bandar:
+    st.markdown("### 🐋 Bandarmologi — Deteksi Akumulasi & Distribusi Bandar")
+    st.caption("Analisis pola pergerakan bandar menggunakan CMF, A/D Line, VPT, OBV, dan VWAP dari data publik.")
+    st.divider()
+
+    # ── Pilih Saham ─────────────────────────────────────────
+    bandar_col1, bandar_col2 = st.columns([2, 1])
+    with bandar_col1:
+        bandar_ticker = st.text_input(
+            "Kode Saham:",
+            value=st.session_state.get('selected_ticker', 'BBCA.JK'),
+            key="bandar_ticker_input",
+            placeholder="Contoh: BBCA.JK, GOTO.JK"
+        ).upper().strip()
+        if not bandar_ticker.endswith('.JK') and bandar_ticker:
+            bandar_ticker += '.JK'
+    with bandar_col2:
+        bandar_days = st.selectbox("Periode Data:", [60, 90, 120, 180], index=1, key="bandar_days")
+
+    analyze_bandar = st.button("🐋 Analisis Bandarmologi", type="primary", use_container_width=True, key="btn_bandar")
+
+    # ── Tampilkan dari scan juga (top saham) ─────────────────
+    if st.session_state.get('scan_results'):
+        scan_tickers = [r['ticker'] for r in st.session_state['scan_results'][:5]]
+        st.caption(f"💡 Dari hasil scan terakhir: pilih saham untuk dianalisis")
+        quick_cols = st.columns(len(scan_tickers))
+        for i, qt in enumerate(scan_tickers):
+            with quick_cols[i]:
+                if st.button(qt, key=f"bandar_quick_{qt}", use_container_width=True):
+                    bandar_ticker = qt
+                    analyze_bandar = True
+
+    if analyze_bandar and bandar_ticker:
+        with st.spinner(f"🐋 Menganalisis pola bandar {bandar_ticker}..."):
+            df_bandar = fetch_stock_data(bandar_ticker, bandar_days)
+
+        if df_bandar is None or len(df_bandar) < 30:
+            st.error(f"❌ Data tidak cukup untuk {bandar_ticker}. Coba ticker lain.")
+        else:
+            result_b = analyze_bandarmologi(df_bandar)
+
+            if not result_b['available']:
+                st.warning(result_b['rekomendasi'])
+            else:
+                # ── Header Fase Bandar ───────────────────────
+                st.markdown(f"""
+                <div style='background:{result_b["fase_color"]}22; border:2px solid {result_b["fase_color"]};
+                     border-radius:12px; padding:20px; margin-bottom:16px; text-align:center;'>
+                    <div style='font-size:2.5em;'>{result_b["fase_emoji"]}</div>
+                    <div style='font-size:1.6em; font-weight:bold; color:{result_b["fase_color"]};'>
+                        {result_b["fase"]}
+                    </div>
+                    <div style='color:#e6edf3; margin-top:8px; font-size:0.95em;'>
+                        {result_b["rekomendasi"]}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # ── Metrics Row ──────────────────────────────
+                m1, m2, m3, m4, m5 = st.columns(5)
+                ind = result_b['indicators']
+
+                with m1:
+                    strength = result_b['bandar_strength']
+                    s_color = '#00ff88' if strength > 60 else '#ff4444' if strength < 40 else '#ffd700'
+                    st.markdown(f"<div style='text-align:center'><div style='color:#8b949e;font-size:0.8em;'>Kekuatan Bandar</div>"
+                                f"<div style='font-size:1.6em;font-weight:bold;color:{s_color};'>{strength}/100</div></div>",
+                                unsafe_allow_html=True)
+                with m2:
+                    cmf_val = ind.get('cmf', 0)
+                    cmf_color = '#00ff88' if cmf_val > 0.05 else '#ff4444' if cmf_val < -0.05 else '#ffd700'
+                    st.markdown(f"<div style='text-align:center'><div style='color:#8b949e;font-size:0.8em;'>CMF</div>"
+                                f"<div style='font-size:1.6em;font-weight:bold;color:{cmf_color};'>{cmf_val:+.3f}</div>"
+                                f"<div style='font-size:0.75em;color:{cmf_color};'>{ind.get('cmf_label','')}</div></div>",
+                                unsafe_allow_html=True)
+                with m3:
+                    vwap_pct = ind.get('vwap_pct', 0)
+                    vwap_c = '#00ff88' if ind.get('above_vwap') else '#ff4444'
+                    vwap_label = 'Di Atas VWAP' if ind.get('above_vwap') else 'Di Bawah VWAP'
+                    st.markdown(f"<div style='text-align:center'><div style='color:#8b949e;font-size:0.8em;'>vs VWAP</div>"
+                                f"<div style='font-size:1.6em;font-weight:bold;color:{vwap_c};'>{vwap_pct:+.1f}%</div>"
+                                f"<div style='font-size:0.75em;color:{vwap_c};'>{vwap_label}</div></div>",
+                                unsafe_allow_html=True)
+                with m4:
+                    acc = result_b['accum_score']
+                    st.markdown(f"<div style='text-align:center'><div style='color:#8b949e;font-size:0.8em;'>Skor Akumulasi</div>"
+                                f"<div style='font-size:1.6em;font-weight:bold;color:#00ff88;'>{acc}/100</div></div>",
+                                unsafe_allow_html=True)
+                with m5:
+                    dist = result_b['distr_score']
+                    st.markdown(f"<div style='text-align:center'><div style='color:#8b949e;font-size:0.8em;'>Skor Distribusi</div>"
+                                f"<div style='font-size:1.6em;font-weight:bold;color:#ff4444;'>{dist}/100</div></div>",
+                                unsafe_allow_html=True)
+
+                st.divider()
+
+                # ── Sinyal Detail ────────────────────────────
+                sig_col, trend_col = st.columns([1.2, 1])
+                with sig_col:
+                    st.markdown("#### 🔍 Sinyal Terdeteksi")
+                    for sig in result_b['signals']:
+                        st.markdown(f"- {sig}")
+
+                with trend_col:
+                    st.markdown("#### 📈 Arah Indikator")
+                    trend_map = {
+                        'UP'  : ('⬆️', '#00ff88'),
+                        'DOWN': ('⬇️', '#ff4444'),
+                        'FLAT': ('➡️', '#ffd700')
+                    }
+                    for key, label in [('ad_trend','A/D Line'), ('vpt_trend','VPT'),
+                                        ('obv_trend','OBV')]:
+                        tr = ind.get(key, 'FLAT')
+                        em, col = trend_map.get(tr, ('➡️','#ffd700'))
+                        st.markdown(f"**{label}:** <span style='color:{col};'>{em} {tr}</span>",
+                                    unsafe_allow_html=True)
+                    st.markdown(f"**Volume Ratio:** `{ind.get('vol_ratio',1):.1f}x` rata-rata")
+                    st.markdown(f"**VWAP:** `{ind.get('vwap',0):,.0f}`")
+
+                st.divider()
+
+                # ── Chart Bandarmologi ───────────────────────
+                st.markdown("#### 📊 Chart Indikator Bandar")
+                try:
+                    from plotly.subplots import make_subplots
+                    import plotly.graph_objects as go
+
+                    df_b = df_bandar.copy()
+                    data_b = result_b['data']
+
+                    fig_b = make_subplots(
+                        rows=4, cols=1, shared_xaxes=True,
+                        vertical_spacing=0.04,
+                        row_heights=[0.4, 0.2, 0.2, 0.2],
+                        subplot_titles=(
+                            f"{bandar_ticker} + VWAP",
+                            "CMF (Chaikin Money Flow)",
+                            "A/D Line + VPT",
+                            "OBV (On Balance Volume)"
+                        )
+                    )
+
+                    # Candlestick
+                    fig_b.add_trace(go.Candlestick(
+                        x=df_b.index, open=df_b['Open'], high=df_b['High'],
+                        low=df_b['Low'], close=df_b['Close'],
+                        increasing_line_color='#00ff88', decreasing_line_color='#ff4444',
+                        name="OHLC", showlegend=False
+                    ), row=1, col=1)
+
+                    # VWAP
+                    fig_b.add_trace(go.Scatter(
+                        x=df_b.index, y=data_b['vwap'],
+                        name="VWAP", line=dict(color='#ffd700', width=2, dash='dash'),
+                    ), row=1, col=1)
+
+                    # CMF
+                    cmf_colors = ['#00ff88' if v >= 0 else '#ff4444' for v in data_b['cmf'].fillna(0)]
+                    fig_b.add_trace(go.Bar(
+                        x=df_b.index, y=data_b['cmf'],
+                        marker_color=cmf_colors, name="CMF", showlegend=False
+                    ), row=2, col=1)
+                    fig_b.add_hline(y=0.1,  line_dash="dot", line_color="#00ff88", line_width=1, row=2, col=1)
+                    fig_b.add_hline(y=0,    line_dash="dash", line_color="#8b949e", line_width=1, row=2, col=1)
+                    fig_b.add_hline(y=-0.1, line_dash="dot", line_color="#ff4444", line_width=1, row=2, col=1)
+
+                    # A/D Line
+                    fig_b.add_trace(go.Scatter(
+                        x=df_b.index, y=data_b['ad'],
+                        name="A/D Line", line=dict(color='#00ccff', width=2)
+                    ), row=3, col=1)
+                    # VPT (normalize ke skala A/D)
+                    vpt_norm = data_b['vpt'] / data_b['vpt'].abs().max() * data_b['ad'].abs().max()
+                    fig_b.add_trace(go.Scatter(
+                        x=df_b.index, y=vpt_norm,
+                        name="VPT (scaled)", line=dict(color='#a371f7', width=1.5, dash='dot')
+                    ), row=3, col=1)
+
+                    # OBV
+                    fig_b.add_trace(go.Scatter(
+                        x=df_b.index, y=data_b['obv'],
+                        name="OBV", line=dict(color='#ff9500', width=2), showlegend=False
+                    ), row=4, col=1)
+
+                    fig_b.update_layout(
+                        height=750, plot_bgcolor='#0d1117', paper_bgcolor='#0d1117',
+                        font_color='#e6edf3', xaxis_rangeslider_visible=False,
+                        legend=dict(bgcolor='#161b22', font=dict(size=10)),
+                        margin=dict(l=10, r=20, t=40, b=10)
+                    )
+                    fig_b.update_xaxes(gridcolor='#21262d')
+                    fig_b.update_yaxes(gridcolor='#21262d')
+                    st.plotly_chart(fig_b, use_container_width=True)
+
+                except Exception as e:
+                    st.warning(f"Chart tidak bisa ditampilkan: {e}")
+
+                # ── Penjelasan Singkat ───────────────────────
+                with st.expander("📖 Cara Baca Indikator Bandarmologi"):
+                    st.markdown("""
+**CMF (Chaikin Money Flow)**
+- `> +0.10` → Tekanan beli dominan = **Bandar akumulasi**
+- `< -0.10` → Tekanan jual dominan = **Bandar distribusi**
+- `-0.10 s/d +0.10` → Netral / konsolidasi
+
+**A/D Line (Accumulation/Distribution)**
+- Naik meski harga turun = **Akumulasi tersembunyi** (sinyal kuat beli)
+- Turun meski harga naik = **Distribusi tersembunyi** (waspada jual)
+
+**VPT (Volume Price Trend)**
+- Lebih sensitif dari OBV — memperhitungkan **besar kecilnya perubahan harga**
+- Konfirmator A/D Line
+
+**OBV (On Balance Volume)**
+- Konfirmasi sederhana: OBV naik = akumulasi, turun = distribusi
+
+**VWAP**
+- Harga di atas VWAP = bandar support harga (bullish)
+- Harga di bawah VWAP = bandar tidak support (bearish)
+
+**⚠️ Catatan Penting:**
+Bandarmologi dari data publik bersifat estimasi. Data broker summary dan net foreign buy/sell dari BEI langsung lebih akurat tapi membutuhkan data premium.
+                    """)
+
+
+# ════════════════════════════════════════════════════════════
+# TAB 6 — BACKTESTING
+# ════════════════════════════════════════════════════════════
+with tab_backtest:
+    st.markdown("### 🔬 Backtesting Strategi")
+    st.divider()
+
+    col_bt1, col_bt2, col_bt3 = st.columns([2, 1, 1])
+    with col_bt1:
+        bt_ticker = st.text_input("Ticker:", value=", ".join(st.session_state['tickers'][:5]))
+    with col_bt2:
+        bt_days = st.selectbox("Periode:", [30, 60, 90], index=0)
+    with col_bt3:
+        bt_mode = st.selectbox("Mode:", ["Detail (1 saham)", "Multi Saham"])
+
+    if st.button("▶️ Jalankan Backtest", type="primary"):
+        bt_tickers = parse_tickers(bt_ticker)
+        if bt_tickers:
+            if bt_mode == "Detail (1 saham)":
+                with st.spinner(f"Backtest {bt_tickers[0]}..."):
+                    bt_r = run_backtest(bt_tickers[0], bt_days)
+
+                if bt_r and bt_r['total_trades'] > 0:
+                    cols = st.columns(6)
+                    metric_card(cols[0], "Total Trade",  bt_r['total_trades'])
+                    metric_card(cols[1], "✅ Win",        bt_r.get('win_count', 0),  "#00ff88")
+                    metric_card(cols[2], "❌ Loss",       bt_r.get('loss_count', 0), "#ff4444")
+                    metric_card(cols[3], "🎯 Win Rate",  f"{bt_r['win_rate']}%",    "#ffd700")
+                    metric_card(cols[4], "📈 Avg P&L",   f"{bt_r['avg_pnl']:+.1f}%",
+                                "#00ff88" if bt_r['avg_pnl'] > 0 else "#ff4444")
+                    metric_card(cols[5], "⏱️ Avg Hold", f"{bt_r.get('avg_days_held', 0)}hr")
+
+                    st.plotly_chart(create_backtest_chart(bt_r), use_container_width=True)
+
+                    trade_rows = [{'#': i+1,
+                        'Entry': str(t['signal_date'])[:10], 'Exit': str(t['exit_date'])[:10],
+                        'Entry Rp': f"{t['entry']:,.0f}", 'Exit Rp': f"{t['exit_price']:,.0f}",
+                        'P&L': f"{t['pnl_pct']:+.2f}%", 'Outcome': t['outcome'],
+                        'Hold': f"{t['days_held']}hr"} for i, t in enumerate(bt_r['trades'])]
+                    st.dataframe(pd.DataFrame(trade_rows), use_container_width=True, hide_index=True)
+                else:
+                    st.warning("⚠️ Tidak ada sinyal terdeteksi di periode ini.")
+            else:
+                prog_bt = st.progress(0, "Memulai...")
+                for i, t in enumerate(bt_tickers):
+                    prog_bt.progress((i+1)/len(bt_tickers), f"Backtest {t}...")
+                prog_bt.empty()
+
+                df_multi = run_multi_backtest(bt_tickers, bt_days)
+                if not df_multi.empty:
+                    st.dataframe(df_multi, use_container_width=True, hide_index=True,
+                        column_config={"Win Rate (%)": st.column_config.ProgressColumn(
+                            min_value=0, max_value=100, format="%.1f%%")})
+
+
+# ════════════════════════════════════════════════════════════
+# TAB 6 — LEADERBOARD
+# ════════════════════════════════════════════════════════════
+with tab_leaderboard:
+    st.markdown("### 🏆 Leaderboard Saham Terbaik")
+    st.markdown("Peringkat saham berdasarkan skor breakout tertinggi dan konsistensi per minggu.")
+    st.divider()
+
+    all_weeks = get_all_weeks()
+    week_options = ["Minggu Ini"] + [f"Minggu {w}" for w in all_weeks[1:]]
+
+    c_lb1, c_lb2 = st.columns([2, 1])
+    with c_lb1:
+        selected_week_label = st.selectbox("Pilih Minggu:", week_options)
+    with c_lb2:
+        top_n = st.number_input("Tampilkan Top:", min_value=5, max_value=20, value=10)
+
+    selected_wk = None if selected_week_label == "Minggu Ini" else \
+                  all_weeks[week_options.index(selected_week_label) - 1]
+
+    lb = get_weekly_leaderboard(selected_wk, top_n)
+
+    if lb['empty']:
+        st.info("📊 Belum ada data leaderboard. Jalankan scan beberapa kali untuk mengisi leaderboard.")
+    else:
+        st.markdown(f"**📅 Periode: {lb['week_label']}** | Total saham muncul: {lb['total']}")
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Top 3 podium
+        stocks = lb['stocks']
+        if len(stocks) >= 3:
+            p1, p2, p3 = st.columns(3)
+            podium = [
+                (p1, stocks[0], "#ffd700", "🥇"),
+                (p2, stocks[1], "#c0c0c0", "🥈"),
+                (p3, stocks[2], "#cd7f32", "🥉"),
+            ]
+            for col, s, color, medal in podium:
+                with col:
+                    pc = s.get('price_change', 0)
+                    pc_color = "#00ff88" if pc >= 0 else "#ff4444"
+                    st.markdown(f"""
+                    <div class='metric-box' style='border-color:{color}; padding:18px;'>
+                        <div style='font-size:1.8rem;'>{medal}</div>
+                        <div style='color:{color}; font-size:1.3rem; font-weight:bold;'>
+                            {s['ticker']}</div>
+                        <div style='color:#e6edf3; font-size:1.1rem;'>Skor {s['best_score']}</div>
+                        <div style='color:#8b949e; font-size:0.8rem;'>Muncul {s['appearances']}x</div>
+                        <div style='color:{pc_color}; font-size:0.85rem;'>{pc:+.1f}% sejak deteksi</div>
+                    </div>""", unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Tabel lengkap
+        df_lb = get_leaderboard_dataframe(selected_wk)
+        if not df_lb.empty:
+            st.dataframe(df_lb, use_container_width=True, hide_index=True)
+
+        st.divider()
+
+        # Multi-week comparison
+        st.subheader("📊 Konsistensi Lintas Minggu")
+        df_mw = get_multi_week_comparison()
+        if not df_mw.empty:
+            st.dataframe(df_mw, use_container_width=True, hide_index=True)
+        else:
+            st.info("Butuh data dari beberapa minggu untuk perbandingan.")
+
+
+# ════════════════════════════════════════════════════════════
+# TAB 7 — WATCHLIST
+# ════════════════════════════════════════════════════════════
+with tab_watchlist:
+    st.markdown("### 👀 Watchlist")
+    st.markdown("Pantau saham-saham yang ingin kamu ikuti.")
+    st.divider()
+
+    # Tambah manual
+    with st.form("add_watchlist_form"):
+        st.markdown("**➕ Tambah Saham**")
+        col_wl1, col_wl2, col_wl3 = st.columns([2, 2, 1])
+        with col_wl1:
+            wl_ticker = st.text_input("Ticker:", placeholder="BBCA.JK")
+        with col_wl2:
+            wl_note = st.text_input("Catatan (opsional):", placeholder="Contoh: Breakout resistance")
+        with col_wl3:
+            wl_alert = st.number_input("Alert Price:", min_value=0.0, value=0.0)
+        if st.form_submit_button("➕ Tambah"):
+            if wl_ticker:
+                add_to_watchlist(wl_ticker.upper().strip(), wl_note,
+                                  wl_alert if wl_alert > 0 else None)
+                st.success(f"✅ {wl_ticker.upper()} ditambahkan!")
+                st.rerun()
+
+    st.divider()
+
+    wl = get_watchlist()
+    if not wl:
+        st.markdown("""
+        <div style='text-align:center; padding:40px; color:#8b949e;'>
+            <div style='font-size:2.5rem;'>👀</div>
+            <p>Watchlist kosong. Tambah saham dari hasil scan atau manual.</p>
+        </div>""", unsafe_allow_html=True)
+    else:
+        st.success(f"📋 {len(wl)} saham di watchlist")
+        for ticker, data in wl.items():
+            score     = data.get('last_score')
+            price     = data.get('last_price')
+            category  = data.get('last_category', '')
+            note      = data.get('note', '')
+            alert_price = data.get('alert_price')
+            score_color = "#00ff88" if (score or 0) >= 80 else "#ffd700" if (score or 0) >= 60 else "#8b949e"
+
+            with st.expander(f"👀 {ticker} | {category or 'Belum di-scan'}"):
+                col_w1, col_w2 = st.columns([3, 1])
+                with col_w1:
+                    if score:
+                        st.markdown(f"**Skor Terakhir:** <span style='color:{score_color};'>{score}/100</span>",
+                                    unsafe_allow_html=True)
+                    if price:
+                        st.markdown(f"**Harga Terakhir:** Rp {price:,.0f}")
+                    if note:
+                        st.markdown(f"**📝 Catatan:** {note}")
+                    if alert_price:
+                        st.markdown(f"**🔔 Alert Price:** Rp {alert_price:,.0f}")
+                    st.markdown(f"**📅 Ditambahkan:** {data.get('added_at', '')[:16]}")
+                with col_w2:
+                    if st.button("❌ Hapus", key=f"rm_{ticker}"):
+                        remove_from_watchlist(ticker)
+                        st.rerun()
+                    if st.button("📊 Scan", key=f"scan_{ticker}"):
+                        with st.spinner("Scanning..."):
+                            df_wl = fetch_stock_data(ticker)
+                            if df_wl:
+                                r_wl = score_stock(df_wl)
+                                if r_wl:
+                                    r_wl['ticker'] = ticker
+                                    add_to_watchlist(ticker, note, alert_price, r_wl)
+                                    st.success(f"Skor: {r_wl['score']}/100")
+                                    st.rerun()
+
+
+# ════════════════════════════════════════════════════════════
+# TAB 8 — PORTFOLIO
+# ════════════════════════════════════════════════════════════
+with tab_portfolio:
+    st.markdown("### 💼 Portfolio Tracker")
+    st.markdown("Catat posisi trading dan pantau P&L secara real-time.")
+    st.divider()
+
+    # Ambil harga terbaru dari hasil scan
+    current_prices = {r['ticker']: r['close'] for r in st.session_state.get('results', [])}
+    summary = get_portfolio_summary(current_prices)
+    stats   = get_portfolio_stats()
+
+    # Summary cards
+    pnl_color = "#00ff88" if summary['total_pnl'] >= 0 else "#ff4444"
+    cols = st.columns(4)
+    metric_card(cols[0], "💰 Total Modal",  f"Rp {summary['total_modal']:,.0f}")
+    metric_card(cols[1], "📊 Nilai Sekarang", f"Rp {summary['total_value']:,.0f}")
+    metric_card(cols[2], "💹 Total P&L",   f"Rp {summary['total_pnl']:,.0f}", pnl_color)
+    metric_card(cols[3], "📈 P&L %",       f"{summary['total_pnl_pct']:+.2f}%", pnl_color)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.divider()
+
+    # Tambah posisi
+    with st.expander("➕ Tambah Posisi Baru"):
+        with st.form("add_position_form"):
+            col_p1, col_p2, col_p3, col_p4 = st.columns(4)
+            with col_p1:
+                pos_ticker = st.text_input("Ticker:", placeholder="BBCA.JK")
+            with col_p2:
+                pos_lot    = st.number_input("Lot:", min_value=1, value=1)
+            with col_p3:
+                pos_entry  = st.number_input("Harga Entry:", min_value=1, value=1000)
+            with col_p4:
+                pos_sl     = st.number_input("Stop Loss:", min_value=0, value=0)
+                pos_tp     = st.number_input("Take Profit:", min_value=0, value=0)
+            pos_note = st.text_input("Catatan:")
+            if st.form_submit_button("➕ Tambah Posisi"):
+                if pos_ticker:
+                    add_position(pos_ticker.upper(), pos_lot, pos_entry,
+                                  pos_sl if pos_sl > 0 else None,
+                                  pos_tp if pos_tp > 0 else None, pos_note)
+                    st.success("✅ Posisi ditambahkan!")
+                    st.rerun()
+
+    # Posisi aktif
+    st.subheader("📊 Posisi Aktif")
+    if not summary['positions']:
+        st.info("Belum ada posisi aktif.")
+    else:
+        for pos in summary['positions']:
+            pnl_c = "#00ff88" if pos['pnl_pct'] >= 0 else "#ff4444"
+            with st.expander(
+                f"{'📈' if pos['pnl_pct'] >= 0 else '📉'} {pos['ticker']} | "
+                f"{pos['lot']} lot | P&L: {pos['pnl_pct']:+.2f}%"
+            ):
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.metric("Entry", f"Rp {pos['entry_price']:,.0f}")
+                    st.metric("Harga Skrg", f"Rp {pos['curr_price']:,.0f}")
+                with c2:
+                    st.metric("P&L (Rp)", f"Rp {pos['pnl_rp']:,.0f}", f"{pos['pnl_pct']:+.2f}%")
+                    st.metric("Modal", f"Rp {pos['modal']:,.0f}")
+                with c3:
+                    if pos.get('sl'):
+                        st.metric("SL", f"Rp {pos['sl']:,.0f}")
+                    if pos.get('tp'):
+                        st.metric("TP", f"Rp {pos['tp']:,.0f}")
+
+                exit_price = st.number_input("Harga Jual:", min_value=1,
+                                              value=int(pos['curr_price']),
+                                              key=f"exit_{pos['ticker']}")
+                if st.button(f"💰 Tutup Posisi {pos['ticker']}", key=f"close_{pos['ticker']}"):
+                    result = close_position(pos['ticker'], exit_price)
+                    if result:
+                        st.success(f"✅ Posisi ditutup! P&L: {result['pnl_pct']:+.2f}%")
+                        st.rerun()
+
+    st.divider()
+
+    # Statistik histori
+    if stats['total_trades'] > 0:
+        st.subheader("📊 Statistik Trading")
+        cols = st.columns(4)
+        metric_card(cols[0], "Total Trade", stats['total_trades'])
+        metric_card(cols[1], "Win Rate", f"{stats['win_rate']}%",
+                    "#00ff88" if stats['win_rate'] >= 50 else "#ff4444")
+        metric_card(cols[2], "Best Trade", f"{stats['best_trade']:+.1f}%", "#00ff88")
+        metric_card(cols[3], "Worst Trade", f"{stats['worst_trade']:+.1f}%", "#ff4444")
+
+        history = get_trade_history()
+        if history:
+            st.markdown("**📋 Riwayat Trade:**")
+            hist_rows = [{'Ticker': t['ticker'],
+                'Entry': t.get('entry_date', '')[:10],
+                'Exit': t.get('exit_date', '')[:10],
+                'Entry Rp': f"Rp {t['entry_price']:,.0f}",
+                'Exit Rp': f"Rp {t['exit_price']:,.0f}",
+                'P&L': f"{t['pnl_pct']:+.2f}%",
+                'P&L Rp': f"Rp {t['pnl_rp']:,.0f}"
+            } for t in history]
+            st.dataframe(pd.DataFrame(hist_rows), use_container_width=True, hide_index=True)
+
+
+# ════════════════════════════════════════════════════════════
+# TAB 9 — RIWAYAT NOTIFIKASI
+# ════════════════════════════════════════════════════════════
+with tab_history:
+    st.markdown("### 📋 Riwayat Notifikasi")
+    st.markdown("Log semua sinyal STRONG BREAKOUT yang sudah dikirim.")
+    st.divider()
+
+    notif_history = st.session_state.get('notif_sent', [])
+
+    if not notif_history:
+        st.markdown("""
+        <div style='text-align:center; padding:50px; color:#8b949e;'>
+            <div style='font-size:3rem;'>📭</div>
+            <h3>Belum ada notifikasi</h3>
+        </div>""", unsafe_allow_html=True)
+    else:
+        st.success(f"✅ {len(notif_history)} notifikasi terkirim sesi ini")
+        df_notif = pd.DataFrame(notif_history)
+        st.dataframe(df_notif, use_container_width=True, hide_index=True)
+
+        csv = df_notif.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Export Log",
+            data=csv, file_name=f"notif_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
+
+        if st.button("🗑️ Hapus Riwayat"):
+            st.session_state['notif_sent'] = []
+            st.rerun()
+
+
+
+
+# ============================================================
+# app.py — AKSARA IDX v2.0 (ENHANCED EDITION)
+# Fitur: Scanner 956 Saham IDX · Bandarmologi · Foreign Flow Real
+#         Chart Pattern · AI Confidence (Groq) · Backtest v2
+#         Portfolio · Risk Manager · Wyckoff · Sector Momentum
+#         Relative Strength vs IHSG · RSI Wilder · MACD Fix
+# ============================================================
+import streamlit as st
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import pandas as pd
 import numpy as np
 import yfinance as yf
 import requests
 from bs4 import BeautifulSoup
-import time, random, os, json, io, re, warnings, zipfile, concurrent.futures, html
+import time
 from datetime import datetime, time as dtime, timedelta
 import pytz
-warnings.filterwarnings("ignore")
+import random
+import os
+import json
 
+# ============================================================
+# KONFIGURASI HALAMAN
+# ============================================================
 st.set_page_config(
-    page_title="📊 Trading Suite",
-    page_icon="📊",
+    page_title="⚡ AKSARA IDX v2.0",
+    page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="expanded"
 )
 
-# ─── CSS ─────────────────────────────────────
+# ============================================================
+# CSS — AKSARA IDX PREMIUM TERMINAL
 # ============================================================
 st.markdown("""
 <style>
@@ -362,662 +4721,6 @@ hr { border-color: var(--border) !important; margin: 16px 0 !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# ─── Global CSS ─────────────────────────────────────────────
-st.markdown("""
-<style>
-    .stApp { background-color: #0d1117; color: #e6edf3; }
-    .metric-box {
-        background: #161b22; border: 1px solid #30363d;
-        border-radius: 10px; padding: 14px; text-align: center;
-        margin-bottom: 8px;
-    }
-    .info-row {
-        display:flex; justify-content:space-between;
-        padding:5px 0; border-bottom:1px solid #21262d;
-    }
-    .badge {
-        padding: 2px 10px; border-radius: 12px;
-        font-size: 0.78rem; font-weight: bold;
-    }
-    .ai-box {
-        background: linear-gradient(135deg, #1a1f35, #0d1117);
-        border: 1px solid #1f6feb; border-radius: 10px; padding: 14px;
-    }
-    .news-box {
-        background: #161b22; border: 1px solid #30363d;
-        border-radius: 8px; padding: 12px; margin-bottom: 8px;
-    }
-    .pattern-box {
-        background: linear-gradient(135deg, #1a2535, #0d1117);
-        border: 1px solid #388bfd; border-radius: 10px; padding: 14px;
-    }
-</style>
-""", unsafe_allow_html=True)
-st.markdown("""
-<style>
-.hdr{background:linear-gradient(135deg,#050a0e,#0a1520);border-bottom:2px solid #00ff88;padding:20px 24px;margin-bottom:20px;border-radius:0 0 12px 12px;}
-.hdr-title{font-family:'Exo 2',sans-serif;font-size:1.8rem;font-weight:900;color:#00ff88;letter-spacing:4px;}
-.hdr-sub{font-family:Share Tech Mono,monospace;font-size:.75rem;color:#5a7a9a;letter-spacing:2px;margin-top:4px;}
-.conf-tag{display:inline-block;padding:3px 10px;border-radius:4px;font-size:.75rem;font-family:Share Tech Mono,monospace;margin:2px;}
-.conf-pos{background:rgba(0,255,136,.15);border:1px solid #00ff88;color:#00ff88;}
-.conf-neg{background:rgba(255,51,85,.15);border:1px solid #ff3355;color:#ff3355;}
-.alert-box{background:rgba(0,255,136,.05);border:1px solid #00ff8855;border-radius:8px;padding:12px;margin:8px 0;}
-.sess-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;}
-.main-header{font-size:2.2rem;font-weight:bold;background:linear-gradient(90deg,#FF6B6B,#4ECDC4);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
-.anomaly-card{background:linear-gradient(135deg,#f093fb,#f5576c);padding:1rem;border-radius:10px;color:white;margin:.5rem 0;}
-</style>
-""", unsafe_allow_html=True)
-
-# ─── DATA IDX (App1) ─────────────────────────
-# ========== CUSTOM CSS — PREMIUM DARK TRADING TERMINAL ==========
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
-
-    /* ── ROOT VARIABLES ── */
-    :root {
-        --bg-base:      #060a0f;
-        --bg-surface:   #0d1117;
-        --bg-elevated:  #161b22;
-        --bg-hover:     #1c2128;
-        --border:       #21262d;
-        --border-light: #30363d;
-        --text-primary: #e6edf3;
-        --text-secondary:#8b949e;
-        --text-muted:   #484f58;
-        --accent-green: #00d4aa;
-        --accent-blue:  #4da6ff;
-        --accent-gold:  #e3b341;
-        --accent-red:   #ff5c5c;
-        --accent-purple:#c084fc;
-        --glow-green:   rgba(0,212,170,0.15);
-        --glow-blue:    rgba(77,166,255,0.15);
-    }
-
-    /* ── GLOBAL RESET ── */
-    .stApp {
-        background-color: var(--bg-base) !important;
-        background-image: 
-            radial-gradient(ellipse 80% 50% at 50% -20%, rgba(0,212,170,0.04) 0%, transparent 60%),
-            radial-gradient(ellipse 60% 40% at 90% 80%, rgba(77,166,255,0.03) 0%, transparent 60%);
-        font-family: 'Space Grotesk', sans-serif;
-    }
-
-    /* ── SIDEBAR ── */
-    [data-testid="stSidebar"] {
-        background: var(--bg-surface) !important;
-        border-right: 1px solid var(--border) !important;
-    }
-    [data-testid="stSidebar"] .stMarkdown p,
-    [data-testid="stSidebar"] label,
-    [data-testid="stSidebar"] .stRadio label {
-        color: var(--text-secondary) !important;
-        font-family: 'Space Grotesk', sans-serif !important;
-        font-size: 0.85rem !important;
-    }
-    [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
-        color: var(--text-primary) !important;
-        font-family: 'Space Grotesk', sans-serif !important;
-        font-weight: 600 !important;
-        letter-spacing: 0.5px;
-    }
-
-    /* ── MAIN TEXT ── */
-    .stApp h1, .stApp h2, .stApp h3, .stApp h4 {
-        font-family: 'Space Grotesk', sans-serif !important;
-        color: var(--text-primary) !important;
-    }
-    .stApp p, .stApp label, .stApp div {
-        font-family: 'Space Grotesk', sans-serif;
-        color: var(--text-secondary);
-    }
-
-    /* ── INPUTS ── */
-    .stSelectbox > div > div,
-    .stMultiselect > div > div,
-    .stNumberInput > div > div > input,
-    .stTextInput > div > div > input {
-        background: var(--bg-elevated) !important;
-        border: 1px solid var(--border-light) !important;
-        border-radius: 8px !important;
-        color: var(--text-primary) !important;
-        font-family: 'Space Grotesk', sans-serif !important;
-    }
-    .stSelectbox > div > div:hover,
-    .stMultiselect > div > div:hover {
-        border-color: var(--accent-green) !important;
-    }
-
-    /* ── SLIDER ── */
-    .stSlider > div > div > div {
-        background: var(--border-light) !important;
-    }
-    .stSlider > div > div > div > div {
-        background: var(--accent-green) !important;
-    }
-
-    /* ── PRIMARY BUTTON — SCAN ── */
-    .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #00d4aa 0%, #0099cc 100%) !important;
-        color: #060a0f !important;
-        font-family: 'Space Grotesk', sans-serif !important;
-        font-weight: 700 !important;
-        font-size: 0.95rem !important;
-        letter-spacing: 1.5px !important;
-        text-transform: uppercase !important;
-        border: none !important;
-        border-radius: 10px !important;
-        padding: 14px 28px !important;
-        box-shadow: 0 0 24px rgba(0,212,170,0.3), 0 4px 12px rgba(0,0,0,0.4) !important;
-        transition: all 0.2s ease !important;
-    }
-    .stButton > button[kind="primary"]:hover {
-        box-shadow: 0 0 36px rgba(0,212,170,0.5), 0 8px 20px rgba(0,0,0,0.5) !important;
-        transform: translateY(-1px) !important;
-    }
-
-    /* ── SECONDARY BUTTONS ── */
-    .stButton > button {
-        background: var(--bg-elevated) !important;
-        color: var(--text-secondary) !important;
-        border: 1px solid var(--border-light) !important;
-        border-radius: 8px !important;
-        font-family: 'Space Grotesk', sans-serif !important;
-        font-size: 0.82rem !important;
-        transition: all 0.15s ease !important;
-    }
-    .stButton > button:hover {
-        border-color: var(--accent-green) !important;
-        color: var(--accent-green) !important;
-        background: rgba(0,212,170,0.05) !important;
-    }
-
-    /* ── DOWNLOAD BUTTONS ── */
-    .stDownloadButton > button {
-        background: var(--bg-elevated) !important;
-        color: var(--accent-blue) !important;
-        border: 1px solid rgba(77,166,255,0.3) !important;
-        border-radius: 8px !important;
-        font-family: 'JetBrains Mono', monospace !important;
-        font-size: 0.82rem !important;
-        letter-spacing: 0.5px !important;
-    }
-    .stDownloadButton > button:hover {
-        background: rgba(77,166,255,0.08) !important;
-        border-color: var(--accent-blue) !important;
-    }
-
-    /* ── DATAFRAME ── */
-    .stDataFrame {
-        border-radius: 12px !important;
-        overflow: hidden !important;
-        border: 1px solid var(--border) !important;
-    }
-    .stDataFrame iframe {
-        border-radius: 12px !important;
-    }
-
-    /* ── METRICS ── */
-    [data-testid="stMetric"] {
-        background: var(--bg-elevated) !important;
-        border: 1px solid var(--border) !important;
-        border-radius: 10px !important;
-        padding: 14px 16px !important;
-    }
-    [data-testid="stMetricLabel"] {
-        color: var(--text-muted) !important;
-        font-size: 0.75rem !important;
-        letter-spacing: 1px !important;
-        text-transform: uppercase !important;
-        font-family: 'JetBrains Mono', monospace !important;
-    }
-    [data-testid="stMetricValue"] {
-        color: var(--accent-green) !important;
-        font-family: 'JetBrains Mono', monospace !important;
-        font-size: 1.5rem !important;
-        font-weight: 700 !important;
-    }
-
-    /* ── EXPANDER ── */
-    .streamlit-expanderHeader {
-        background: var(--bg-elevated) !important;
-        border: 1px solid var(--border) !important;
-        border-radius: 10px !important;
-        color: var(--text-primary) !important;
-        font-family: 'Space Grotesk', sans-serif !important;
-        font-weight: 500 !important;
-        transition: all 0.15s ease !important;
-    }
-    .streamlit-expanderHeader:hover {
-        border-color: var(--accent-green) !important;
-        background: rgba(0,212,170,0.04) !important;
-    }
-    .streamlit-expanderContent {
-        background: var(--bg-surface) !important;
-        border: 1px solid var(--border) !important;
-        border-top: none !important;
-        border-radius: 0 0 10px 10px !important;
-    }
-
-    /* ── TABS ── */
-    .stTabs [data-baseweb="tab-list"] {
-        background: transparent !important;
-        gap: 4px !important;
-        border-bottom: 1px solid var(--border) !important;
-    }
-    .stTabs [data-baseweb="tab"] {
-        background: transparent !important;
-        color: var(--text-muted) !important;
-        border: none !important;
-        border-radius: 8px 8px 0 0 !important;
-        font-family: 'Space Grotesk', sans-serif !important;
-        font-size: 0.85rem !important;
-        padding: 8px 18px !important;
-    }
-    .stTabs [aria-selected="true"] {
-        background: rgba(0,212,170,0.08) !important;
-        color: var(--accent-green) !important;
-        border-bottom: 2px solid var(--accent-green) !important;
-    }
-
-    /* ── INFO / WARNING / SUCCESS ── */
-    .stInfo {
-        background: rgba(77,166,255,0.07) !important;
-        border: 1px solid rgba(77,166,255,0.2) !important;
-        border-radius: 8px !important;
-        color: var(--accent-blue) !important;
-        font-size: 0.85rem !important;
-    }
-    .stWarning {
-        background: rgba(227,179,65,0.07) !important;
-        border: 1px solid rgba(227,179,65,0.25) !important;
-        border-radius: 8px !important;
-        color: var(--accent-gold) !important;
-        font-size: 0.85rem !important;
-    }
-    .stSuccess {
-        background: rgba(0,212,170,0.07) !important;
-        border: 1px solid rgba(0,212,170,0.2) !important;
-        border-radius: 8px !important;
-    }
-
-    /* ── PROGRESS BAR ── */
-    .stProgress > div > div > div > div {
-        background: linear-gradient(90deg, var(--accent-green), var(--accent-blue)) !important;
-        border-radius: 4px !important;
-    }
-    .stProgress > div > div > div {
-        background: var(--bg-elevated) !important;
-        border-radius: 4px !important;
-    }
-
-    /* ── RADIO ── */
-    .stRadio > div {
-        gap: 8px !important;
-    }
-    .stRadio label {
-        background: var(--bg-elevated) !important;
-        border: 1px solid var(--border) !important;
-        border-radius: 8px !important;
-        padding: 8px 14px !important;
-        transition: all 0.15s !important;
-    }
-    .stRadio label:hover {
-        border-color: var(--accent-green) !important;
-        background: rgba(0,212,170,0.04) !important;
-    }
-
-    /* ── CHECKBOX ── */
-    .stCheckbox label {
-        color: var(--text-secondary) !important;
-        font-size: 0.85rem !important;
-    }
-
-    /* ── SCROLLBAR ── */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: var(--bg-surface); }
-    ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
-
-    /* ── DIVIDER ── */
-    hr { border-color: var(--border) !important; margin: 24px 0 !important; }
-
-    /* ── CAPTION ── */
-    .stCaption { color: var(--text-muted) !important; font-size: 0.78rem !important; font-family: 'JetBrains Mono', monospace !important; }
-
-    /* ── SPINNER ── */
-    .stSpinner > div { border-top-color: var(--accent-green) !important; }
-</style>
-""", unsafe_allow_html=True)
-
-
-# ========== DATA TINGKATAN SAHAM ==========
-BLUE_CHIP_STOCKS = [
-    'BBCA', 'BBRI', 'BMRI', 'BBNI', 'BTPS', 'BRIS',
-    'TLKM', 'ISAT', 'EXCL', 'TOWR', 'MTEL',
-    'UNVR', 'ICBP', 'INDF', 'KLBF', 'GGRM', 'HMSP',
-    'ASII', 'UNTR', 'ADRO', 'BYAN', 'PTBA', 'ITMG',
-    'CPIN', 'JPFA', 'MAIN', 'SIDO', 'ULTJ',
-    'SMGR', 'INTP', 'SMCB',
-    'PGAS', 'MEDC', 'ELSA',
-    'ANTM', 'INCO', 'MDKA', 'HRUM', 'BRPT', 'TPIA',
-    'WIKA', 'PTPP', 'WSKT', 'ADHI', 'JSMR',
-]
-
-SECOND_LINER_STOCKS = [
-    'AKRA', 'INKP', 'BUMI', 'PTRO', 'DOID', 'TINS', 'BRMS', 'DKFT',
-    'BMTR', 'MAPI', 'ERAA', 'ACES', 'MIKA', 'SILO', 'HEAL', 'PRAY',
-    'CLEO', 'ROTI', 'MYOR', 'GOOD', 'SKBM', 'SKLT', 'STTP',
-    'WSBP', 'PBSA', 'MTFN', 'BKSL', 'SMRA', 'CTRA', 'BSDE', 'PWON',
-    'LPKR', 'LPCK', 'DILD', 'RDTX', 'MREI', 'PZZA', 'MAPB', 'DMAS',
-    'LMPI', 'ARNA', 'TOTO', 'MLIA', 'INTD', 'IKAI', 'JECC', 'KBLI',
-    'KBLM', 'VOKS', 'UNIT', 'INAI', 'IMPC', 'ASGR', 'POWR', 'RAJA',
-    'PJAA', 'SAME', 'SCCO', 'SPMA', 'SRSN', 'TALF', 'TRST', 'TSPC',
-    'UNIC', 'YPAS',
-]
-
-FCA_STOCKS = ['COIN', 'CDIA']
-
-SHAREHOLDER_DATA = {
-    'CUAN': {
-        'pemegang': [
-            {'nama': 'BPJS Ketenagakerjaan', 'persen': 1.02, 'tipe': 'Institusi', 'catatan': 'Masuk Q4 2025', 'update': 'Feb 2026'},
-            {'nama': 'Vanguard', 'persen': 1.15, 'tipe': 'Asing', 'catatan': 'Nambah Jan 2026', 'update': 'Feb 2026'}
-        ],
-        'free_float': 13.73, 'total_shares': 12345678900,
-        'insider_activity': [
-            {'tanggal': '05 Mar 2026', 'insider': 'Direktur Utama', 'aksi': 'BELI', 'jumlah': 100000, 'harga': 15000},
-            {'tanggal': '20 Feb 2026', 'insider': 'Komisaris', 'aksi': 'BELI', 'jumlah': 50000, 'harga': 14800}
-        ]
-    },
-    'BRPT': {
-        'pemegang': [{'nama': 'BPJS Ketenagakerjaan', 'persen': 1.22, 'tipe': 'Institusi', 'catatan': 'Nambah Feb 2026', 'update': 'Feb 2026'}],
-        'free_float': 27.41, 'total_shares': 8765432100,
-        'insider_activity': [{'tanggal': '28 Feb 2026', 'insider': 'Komisaris', 'aksi': 'JUAL', 'jumlah': 75000, 'harga': 8500}]
-    },
-    'TPIA': {
-        'pemegang': [{'nama': 'GIC Singapore', 'persen': 3.45, 'tipe': 'Asing', 'catatan': 'Masuk Jan 2026', 'update': 'Feb 2026'}],
-        'free_float': 91.52, 'total_shares': 1122334455, 'insider_activity': []
-    },
-    'TRIM': {
-        'pemegang': [{'nama': 'BPJS Ketenagakerjaan', 'persen': 2.15, 'tipe': 'Institusi', 'catatan': 'Nambah Des 2025', 'update': 'Feb 2026'}],
-        'free_float': 63.17, 'total_shares': 9988776655, 'insider_activity': []
-    },
-    'MDKA': {
-        'pemegang': [
-            {'nama': 'BPJS Ketenagakerjaan', 'persen': 2.15, 'tipe': 'Institusi', 'catatan': 'Nambah', 'update': 'Feb 2026'},
-            {'nama': 'Pemerintah Norwegia', 'persen': 1.08, 'tipe': 'Asing', 'catatan': 'Masuk Q1 2026', 'update': 'Feb 2026'}
-        ],
-        'free_float': 89.31, 'total_shares': 8877665544,
-        'insider_activity': [{'tanggal': '15 Feb 2026', 'insider': 'Dirut', 'aksi': 'BELI', 'jumlah': 200000, 'harga': 2500}]
-    },
-    'BBCA': {
-        'pemegang': [
-            {'nama': 'BPJS Ketenagakerjaan', 'persen': 1.06, 'tipe': 'Institusi', 'catatan': 'Nambah', 'update': 'Feb 2026'},
-            {'nama': 'Vanguard', 'persen': 1.23, 'tipe': 'Asing', 'catatan': 'Nambah', 'update': 'Feb 2026'}
-        ],
-        'free_float': 95.67, 'total_shares': 123456789000,
-        'insider_activity': [
-            {'tanggal': '10 Mar 2026', 'insider': 'Presdir', 'aksi': 'BELI', 'jumlah': 1000000, 'harga': 10250},
-            {'tanggal': '25 Feb 2026', 'insider': 'Komisaris', 'aksi': 'BELI', 'jumlah': 500000, 'harga': 10100}
-        ]
-    },
-    'BBRI': {
-        'pemegang': [{'nama': 'BPJS Ketenagakerjaan', 'persen': 1.09, 'tipe': 'Institusi', 'catatan': 'Nambah', 'update': 'Feb 2026'}],
-        'free_float': 98.91, 'total_shares': 123456789000,
-        'insider_activity': [{'tanggal': '09 Mar 2026', 'insider': 'Dirut', 'aksi': 'JUAL', 'jumlah': 50000, 'harga': 5800}]
-    },
-    'KLBF': {
-        'pemegang': [
-            {'nama': 'Pemerintah Norwegia', 'persen': 1.30, 'tipe': 'Asing', 'catatan': 'Nambah', 'update': 'Feb 2026'},
-            {'nama': 'BPJS Ketenagakerjaan', 'persen': 2.01, 'tipe': 'Institusi', 'catatan': 'Nambah', 'update': 'Feb 2026'}
-        ],
-        'free_float': 96.69, 'total_shares': 5566778899, 'insider_activity': []
-    },
-    'ARTO': {
-        'pemegang': [{'nama': 'Pemerintah Singapura', 'persen': 8.28, 'tipe': 'Asing', 'catatan': 'Masuk besar', 'update': 'Feb 2026'}],
-        'free_float': 91.72, 'total_shares': 1122334455, 'insider_activity': []
-    },
-    'MTEL': {
-        'pemegang': [{'nama': 'Pemerintah Singapura', 'persen': 5.33, 'tipe': 'Asing', 'catatan': 'Nambah', 'update': 'Feb 2026'}],
-        'free_float': 94.67, 'total_shares': 2233445566, 'insider_activity': []
-    }
-}
-
-# ========== HELPER FUNCTIONS ==========
-
-def get_stock_level(stock_code):
-    if stock_code in BLUE_CHIP_STOCKS:
-        return '💎 Blue Chip'
-    elif stock_code in SECOND_LINER_STOCKS:
-        return '📈 Second Liner'
-    else:
-        return '🎯 Third Liner'
-
-def get_stocks_by_level(levels):
-    result = []
-    if 'Blue Chip' in levels:
-        result += BLUE_CHIP_STOCKS
-    if 'Second Liner' in levels:
-        result += SECOND_LINER_STOCKS
-    if 'Third Liner' in levels or len(levels) == 0:
-        third_liner = [s for s in STOCKS_LIST if s not in BLUE_CHIP_STOCKS and s not in SECOND_LINER_STOCKS]
-        result += third_liner
-    return list(set(result))
-
-def is_fca(stock_code):
-    return stock_code in FCA_STOCKS
-
-def get_free_float_holders(stock_code):
-    data = SHAREHOLDER_DATA.get(stock_code, {})
-    return data.get('pemegang', [])
-
-def get_free_float_value(stock_code):
-    data = SHAREHOLDER_DATA.get(stock_code, {})
-    return data.get('free_float', 100.0)
-
-def get_insider_activity(stock_code):
-    data = SHAREHOLDER_DATA.get(stock_code, {})
-    return data.get('insider_activity', [])
-
-def get_kategori_singkatan(kategori):
-    singkatan = {
-        'Ultra Low Float': 'ULF',
-        'Very Low Float': 'VLF',
-        'Low Float': 'LF',
-        'Moderate Low Float': 'MLF',
-        'Normal Float': 'NF'
-    }
-    return singkatan.get(kategori, kategori)
-
-def analyze_goreng_potential(free_float):
-    if free_float < 10:
-        return '🔥 UT'
-    elif free_float < 15:
-        return '🔥 ST'
-    elif free_float < 25:
-        return '⚡ TG'
-    elif free_float < 40:
-        return '📊 SD'
-    else:
-        return '📉 RD'
-
-def display_free_float_info(stock_code, free_float_value):
-    free_float_holders = get_free_float_holders(stock_code)
-    
-    h = f"""
-    <div style='background: linear-gradient(135deg, #0d1117 0%, #161b22 100%); 
-                padding: 18px; border-radius: 12px; margin: 12px 0;
-                border: 1px solid #30363d; box-shadow: 0 4px 24px rgba(0,0,0,0.4);'>
-        <div style='display: flex; align-items: center; gap: 10px; margin-bottom: 14px;'>
-            <span style='width: 3px; height: 20px; background: linear-gradient(180deg, #00d4aa, #0099ff); 
-                         border-radius: 2px; display: inline-block;'></span>
-            <h4 style='color: #e6edf3; margin: 0; font-size: 0.95rem; letter-spacing: 0.5px; font-family: "JetBrains Mono", monospace;'>
-                FREE FLOAT — {stock_code}
-            </h4>
-        </div>
-    """
-    
-    if is_fca(stock_code):
-        h += """
-        <div style='background: rgba(255,170,0,0.1); border: 1px solid rgba(255,170,0,0.3); 
-                    padding: 8px 12px; border-radius: 8px; margin-bottom: 12px;'>
-            <span style='color: #ffaa00; font-size: 0.82rem; font-weight: 600; letter-spacing: 1px;'>
-                ⚠ FCA — PAPAN PEMANTAUAN KHUSUS
-            </span>
-        </div>
-        """
-    
-    h += f"""
-    <div style='background: rgba(0, 212, 170, 0.08); border: 1px solid rgba(0, 212, 170, 0.2);
-                padding: 10px 14px; border-radius: 8px; margin-bottom: 14px;
-                display: flex; justify-content: space-between; align-items: center;'>
-        <span style='color: #8b949e; font-size: 0.82rem; font-family: "JetBrains Mono", monospace;'>FREE FLOAT</span>
-        <span style='color: #00d4aa; font-size: 1.4rem; font-weight: 700; font-family: "JetBrains Mono", monospace;'>{free_float_value:.2f}%</span>
-    </div>
-    """
-    
-    if free_float_holders:
-        h += "<p style='color: #8b949e; font-size: 0.78rem; margin: 0 0 8px 0; letter-spacing: 1px; text-transform: uppercase; font-family: \"JetBrains Mono\", monospace;'>Pemegang Institusi / Asing &gt;1%</p>"
-        total_dari_ff = 0
-        
-        for p in free_float_holders:
-            persen_dalam_ff = (p['persen'] / free_float_value) * 100
-            total_dari_ff += persen_dalam_ff
-            
-            color = '#4da6ff' if p['tipe'] == 'Institusi' else '#00d4aa'
-            icon = '🏛' if p['tipe'] == 'Institusi' else '🌐'
-            
-            h += f"""
-            <div style='display: flex; justify-content: space-between; align-items: center;
-                        background: rgba(255,255,255,0.03); padding: 9px 12px; border-radius: 7px; 
-                        margin: 5px 0; border-left: 2px solid {color};'>
-                <div>
-                    <span style='color: #c9d1d9; font-size: 0.85rem;'>{icon} {p['nama']}</span>
-                    <span style='color: #484f58; font-size: 0.75rem; margin-left: 8px;'>{p['catatan']}</span>
-                </div>
-                <span style='color: {color}; font-weight: 700; font-size: 0.95rem; font-family: "JetBrains Mono", monospace;'>{persen_dalam_ff:.1f}%</span>
-            </div>
-            """
-        
-        sisa_ritel = 100 - total_dari_ff
-        h += f"""
-        <div style='display: flex; justify-content: space-between; align-items: center;
-                    background: rgba(0,212,170,0.06); padding: 9px 12px; border-radius: 7px; 
-                    margin: 5px 0; border-left: 2px solid #00d4aa;'>
-            <span style='color: #c9d1d9; font-size: 0.85rem;'>👥 Ritel</span>
-            <span style='color: #00d4aa; font-weight: 700; font-size: 0.95rem; font-family: "JetBrains Mono", monospace;'>{sisa_ritel:.1f}%</span>
-        </div>
-        """
-    else:
-        h += """
-        <div style='text-align: center; padding: 16px; color: #484f58; font-size: 0.85rem;'>
-            Tidak ada institusi/asing &gt;1%
-        </div>
-        <div style='display: flex; justify-content: space-between; align-items: center;
-                    background: rgba(0,212,170,0.06); padding: 9px 12px; border-radius: 7px; border-left: 2px solid #00d4aa;'>
-            <span style='color: #c9d1d9; font-size: 0.85rem;'>👥 Ritel</span>
-            <span style='color: #00d4aa; font-weight: 700; font-family: "JetBrains Mono", monospace;'>100%</span>
-        </div>
-        """
-    
-    insider = get_insider_activity(stock_code)
-    if insider:
-        h += "<p style='color: #8b949e; font-size: 0.78rem; margin: 16px 0 8px 0; letter-spacing: 1px; text-transform: uppercase; font-family: \"JetBrains Mono\", monospace;'>Aktivitas Insider — 30 Hari</p>"
-        for a in insider:
-            is_buy = a['aksi'] == 'BELI'
-            color = '#00d4aa' if is_buy else '#ff5c5c'
-            icon = '▲' if is_buy else '▼'
-            h += f"""
-            <div style='display: flex; justify-content: space-between; align-items: center;
-                        background: rgba(255,255,255,0.03); padding: 9px 12px; border-radius: 7px; margin: 5px 0;'>
-                <div>
-                    <span style='color: #8b949e; font-size: 0.78rem; font-family: "JetBrains Mono", monospace;'>{a['tanggal']}</span>
-                    <span style='color: #484f58; font-size: 0.78rem; margin-left: 8px;'>{a['insider']}</span>
-                </div>
-                <span style='color: {color}; font-weight: 700; font-size: 0.85rem; font-family: "JetBrains Mono", monospace;'>
-                    {icon} {a['aksi']} {a['jumlah']:,}
-                </span>
-            </div>
-            """
-    
-    h += "</div>"
-    return h
-
-def create_download_buttons(data, prefix, key_suffix):
-    col1, col2 = st.columns(2)
-    with col1:
-        csv = data.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="⬇ Download CSV",
-            data=csv,
-            file_name=f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-            mime="text/csv",
-            use_container_width=True,
-            key=f"csv_{key_suffix}"
-        )
-    with col2:
-        excel = export_to_excel(data)
-        if excel:
-            st.download_button(
-                label="⬇ Download Excel",
-                data=excel,
-                file_name=f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-                key=f"excel_{key_suffix}"
-            )
-
-def scan_stocks_parallel(stocks_to_scan, scan_function, *args, **kwargs):
-    results = []
-    failed_stocks = []
-    
-    with st.spinner(f"Memproses {len(stocks_to_scan)} saham..."):
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            future_to_stock = {
-                executor.submit(scan_function, stock, *args, **kwargs): stock 
-                for stock in stocks_to_scan
-            }
-            
-            completed = 0
-            total = len(future_to_stock)
-            
-            for future in concurrent.futures.as_completed(future_to_stock):
-                stock = future_to_stock[future]
-                completed += 1
-                
-                try:
-                    result = future.result(timeout=30)
-                    if result:
-                        results.append(result)
-                except Exception as e:
-                    failed_stocks.append(stock)
-                
-                progress = completed / total
-                progress_bar.progress(progress)
-                status_text.markdown(
-                    f"<span style='color:#00d4aa; font-family:monospace; font-size:0.85rem;'>✓ {completed}/{total} diproses &nbsp;|&nbsp; ✗ {len(failed_stocks)} gagal</span>",
-                    unsafe_allow_html=True
-                )
-        
-        progress_bar.empty()
-        status_text.empty()
-        
-        if failed_stocks:
-            st.warning(f"{len(failed_stocks)} saham gagal: {', '.join(failed_stocks[:10])}" + 
-                      ("..." if len(failed_stocks) > 10 else ""))
-    
-    return results
-
-def reset_session_data():
-    keys_to_reset = ['scan_results', 'enhanced_df', 'watchlist_df', 'display_df', 'df_results']
-    for key in keys_to_reset:
-        if key in st.session_state:
-            del st.session_state[key]
-# ─── ENGINE AKSARA IDX v2.0 ──────────────────
 # ============================================================
 # DATA SAHAM IDX (956 SAHAM)
 # ============================================================
@@ -3030,8 +6733,1231 @@ def init_session_state():
         if key not in st.session_state:
             st.session_state[key] = value
 
+# ============================================================
+# MAIN APP
+# ============================================================
+def main():
+    init_session_state()
+    mkt = get_market_status()
 
-# ─── SNIPER FX FUNCTIONS ─────────────────────
+    st.markdown("<h1>⚡ AKSARA IDX</h1>", unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style='display:flex;gap:16px;align-items:center;margin-top:-4px;margin-bottom:18px;
+    padding-bottom:12px;border-bottom:1px solid var(--border)'>
+        <span style='display:inline-flex;align-items:center;gap:5px;background:rgba(0,0,0,0.3);
+        border:1px solid {mkt["status_color"]}55;border-radius:20px;padding:3px 12px;
+        font-family:"JetBrains Mono",monospace;font-size:0.65rem;color:{mkt["status_color"]};
+        font-weight:700;letter-spacing:1px'>{mkt["status_text"]}</span>
+        <span style='font-family:"JetBrains Mono",monospace;font-size:0.65rem;color:var(--text-muted)'>
+            {mkt["date_str"]} · {mkt["time_str"]} WIB
+        </span>
+        <span style='font-family:"JetBrains Mono",monospace;font-size:0.6rem;color:var(--text-muted);
+        letter-spacing:1.5px;text-transform:uppercase'>
+            v2.0 · RSI WILDER · MACD FIX · FOREIGN REAL · RS vs IHSG · SECTOR MOMENTUM
+        </span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Sidebar ───────────────────────────────────────────────
+    with st.sidebar:
+        st.markdown("### ⚙️ SETTINGS")
+
+        _mkt = get_market_status()
+        _quotes = [
+            ("📈 Pasar selalu benar.", "Ego yang salah."),
+            ("🙏 Berdoa dulu,", "baru trading, bro!"),
+            ("💡 Cut loss itu", "bukan kalah — itu bijak."),
+            ("🧘 Trading tenang,", "profit datang."),
+            ("⚠️ Jangan FOMO!", "Saham bagus selalu ada."),
+            ("💰 Protect modal =", "protect masa depan."),
+            ("🎯 Satu setup bagus", "lebih baik dari 10 gambling."),
+            ("📊 Data bicara,", "perasaan diam."),
+            ("🔥 Disiplin SL hari ini =", "trading besok lagi."),
+        ]
+        _q = random.choice(_quotes)
+
+        st.markdown(f"""
+        <div class='sb-card'>
+            <div class='sb-card-title'>Indonesia Stock Exchange</div>
+            <div style='font-family:"Syne",sans-serif;font-size:1.8rem;font-weight:800;
+            letter-spacing:8px;background:linear-gradient(120deg,#e63946,#ffffff,#0d47a1);
+            -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+            display:inline-block;margin-bottom:4px'>IDX</div>
+            <div style='font-family:"JetBrains Mono",monospace;font-size:0.6rem;
+            color:var(--text-muted);letter-spacing:2px'>956 SAHAM · v2.0 ENHANCED</div>
+        </div>
+        <div class='quote-card'>
+            <div class='quote-line1'>{_q[0]}</div>
+            <div class='quote-line2'>{_q[1]}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("---")
+        st.markdown("### 🎯 SCAN MODE")
+        scan_mode = st.radio("Pilih mode:", ["🎯 Custom", "⚡ Top 50", "🔥 Semua 956 Saham", "🏭 Per Sektor"], index=0)
+
+        if scan_mode == "🎯 Custom":
+            custom_input = st.text_area("Ticker (pisah koma/enter):",
+                                        value="BBCA,BBRI,BMRI,TLKM,ASII,ANTM,ADRO,BSDE,UNVR,GOTO",
+                                        height=100)
+            tickers_to_scan = parse_tickers(custom_input)
+        elif scan_mode == "⚡ Top 50":
+            tickers_to_scan = [
+                "BBCA","BBRI","BMRI","TLKM","ASII","UNVR","ICBP","KLBF","HMSP",
+                "GGRM","INDF","PGAS","ANTM","PTBA","ADRO","ITMG","INCO","MEDC",
+                "AKRA","SMGR","CPIN","JPFA","BUMI","BRPT","TPIA","BSDE","PWON",
+                "CTRA","SMRA","JSMR","WIKA","WSKT","PTPP","ADHI","BBNI","BBTN",
+                "BDMN","NISP","PNBN","MDKA","MNCN","EXCL","ISAT","TBIG","TOWR",
+                "SIDO","MYOR","ROTI","TLKM","GOTO"
+            ]
+            st.info(f"✅ {len(tickers_to_scan)} saham top IDX")
+        elif scan_mode == "🔥 Semua 956 Saham":
+            tickers_to_scan = ALL_TICKERS
+            st.warning(f"⚠️ {len(ALL_TICKERS)} saham — butuh ~5-10 menit")
+        else:
+            sectors = sorted(set(SECTOR_MAP.values()))
+            selected_sector = st.selectbox("Pilih Sektor:", sectors)
+            tickers_to_scan = [t for t, s in SECTOR_MAP.items() if s == selected_sector]
+            st.info(f"✅ {len(tickers_to_scan)} saham sektor {selected_sector}")
+
+        st.markdown("---")
+        st.markdown("### 🔍 FILTER")
+        col_f1, col_f2 = st.columns(2)
+        with col_f1: min_score  = st.slider("Min Score:", 0, 100, 50, 5)
+        with col_f2: only_liquid= st.checkbox("Hanya Likuid", value=True)
+
+        modal = st.number_input("Modal Trading (Rp):", min_value=1_000_000, max_value=10_000_000_000,
+                                value=st.session_state['modal'], step=1_000_000, format="%d")
+        st.session_state['modal'] = modal
+
+        max_scan = (len(ALL_TICKERS) if scan_mode == "🔥 Semua 956 Saham"
+                    else st.slider("Max saham di-scan:", 10, 500, 200, 10))
+
+        st.markdown("---")
+        scan_button = st.button("🚀 MULAI SCAN", type="primary", use_container_width=True)
+        if st.session_state.get('scan_time'):
+            st.caption(f"Scan terakhir: {st.session_state['scan_time']}")
+            st.caption(f"Total scan: {st.session_state.get('last_scan_count', 0)}x")
+
+        st.markdown("---")
+        st.caption("v2.0 · RSI Wilder · MACD Fix · RS vs IHSG · Sector Momentum · Foreign Real")
+        st.caption("⚠️ Data edukasi. Bukan rekomendasi investasi.")
+
+    # ── TABS ──────────────────────────────────────────────────
+    tab_scanner, tab_rs, tab_sector, tab_foreign, tab_bandar, tab_backtest, tab_portfolio, tab_watchlist, tab_ai = st.tabs([
+        "📊 SCANNER", "📈 RS vs IHSG", "🏭 SEKTOR", "🌏 FOREIGN FLOW",
+        "🐋 BANDARMOLOGI", "🔬 BACKTEST", "💼 PORTFOLIO", "👀 WATCHLIST", "🤖 AI ANALYST"
+    ])
+
+    # ── SCAN TRIGGER ─────────────────────────────────────────
+    if scan_button:
+        if not tickers_to_scan:
+            st.error("❌ Masukkan minimal satu ticker!")
+        else:
+            scan_list = tickers_to_scan[:max_scan]
+            with st.spinner("⏳ Memuat data pendukung (IHSG, Sektor, Foreign Flow)..."):
+                # Load IHSG
+                ihsg_closes = get_ihsg_data()
+                st.session_state['ihsg_closes'] = ihsg_closes
+
+                # Load Sector Momentum
+                sector_momentum = get_sector_momentum()
+                st.session_state['sector_momentum'] = sector_momentum
+
+                # Load Foreign Flow Real
+                rti_data = fetch_foreign_flow_rti()
+                st.session_state['rti_data'] = rti_data
+
+                if rti_data:
+                    st.success(f"✅ Foreign flow real: {len(rti_data)} saham dari RTI/IDX")
+                else:
+                    st.info("ℹ️ Foreign flow: menggunakan estimasi volume-based")
+
+            with st.spinner(f"🔍 Scanning {len(scan_list)} saham..."):
+                pb = st.progress(0, "Memulai scan...")
+                results = run_scan(scan_list, pb, ihsg_closes, sector_momentum, rti_data)
+                pb.empty()
+
+                # ============================================================
+                # SMART FILTER — Hanya saham paling potensial yang lolos
+                # ============================================================
+
+                # 1. Buang semua yang di-disqualify (penny, tidak likuid, dll)
+                filtered = [r for r in results if not r.get("disqualified", False)]
+
+                # 2. Buang rating AVOID dan NEUTRAL
+                filtered = [r for r in filtered if r.get("rating", "") not in ["AVOID", "NEUTRAL"]]
+
+                # 3. Filter score minimum dari slider user
+                filtered = [r for r in filtered if r.get("score", 0) >= min_score]
+
+                # 4. Wajib likuid jika checkbox aktif
+                if only_liquid:
+                    filtered = [r for r in filtered if r.get("is_liquid", False)]
+
+                # 5. Wajib minimal 3 konfirmasi independen
+                filtered = [r for r in filtered if r.get("confirmations", 0) >= 3]
+
+                # 6. Quality gate: minimal 2/4 gate terpenuhi
+                filtered = [r for r in filtered if r.get("quality_gates", 0) >= 2]
+
+                # 7. Buang saham yang sektor-nya sedang turun parah (rank >= 11)
+                #    kecuali saham itu sendiri punya RS sangat kuat (>70)
+                filtered = [r for r in filtered
+                            if r.get("sec_rank", 13) <= 10
+                            or r.get("rs_score", 50) > 70]
+
+                # 8. Buang saham yang RSI overbought (>75) kecuali breakout kuat
+                filtered = [r for r in filtered
+                            if r.get("rsi", 50) <= 75
+                            or (r.get("vol_ratio", 0) > 3 and r.get("adx", 0) > 30)]
+
+                # 9. COMPOSITE SCORE — bukan cuma score teknikal
+                #    Gabungkan: Score(45%) + RS vs IHSG(20%) + Konfirmasi(15%) + Sektor(10%) + Quality Gate(10%)
+                def composite(r):
+                    s   = r.get("score", 0)
+                    rs  = r.get("rs_score", 50)
+                    c   = min(r.get("confirmations", 0), 10) * 10
+                    qg  = r.get("quality_gates", 0) * 20
+                    sec = max(0, (13 - r.get("sec_rank", 13))) * 5
+                    return s * 0.45 + rs * 0.20 + c * 0.15 + qg * 0.10 + sec * 0.10
+
+                filtered = sorted(filtered, key=composite, reverse=True)
+
+                st.session_state["stocks"]          = filtered
+                st.session_state["scan_time"]       = datetime.now().strftime("%H:%M:%S")
+                st.session_state["last_scan_count"] = st.session_state.get("last_scan_count", 0) + 1
+                st.session_state["data_loaded"]     = True
+
+                live_count     = sum(1 for r in results if r.get("source") == "live")
+                disq_count     = sum(1 for r in results if r.get("disqualified", False))
+                strong_count   = sum(1 for r in filtered if r.get("score", 0) >= 72)
+                outperform_cnt = sum(1 for r in filtered if r.get("rs_outperform", False))
+                st.success(
+                    f"✅ Scan selesai!\n"
+                    f"- {len(results)} saham di-scan ({live_count} live data)\n"
+                    f"- {disq_count} saham didiskualifikasi (penny/tidak likuid/distribusi)\n"
+                    f"- **{len(filtered)} saham LOLOS semua filter**\n"
+                    f"- {strong_count} Strong Buy / Super Buy · {outperform_cnt} outperform IHSG\n"
+                    f"- Diurutkan: Composite Score (Teknikal + RS + Konfirmasi + Sektor)"
+                )
+
+    # ──────────────────────────────────────────────────────────
+    # TAB: SCANNER
+    # ──────────────────────────────────────────────────────────
+    with tab_scanner:
+        stocks = st.session_state.get('stocks', [])
+        if not stocks:
+            st.markdown("""
+            <div class='empty-state'>
+                <div class='icon'>⚡</div>
+                <div class='title'>AKSARA IDX v2.0</div>
+                <div class='sub'>
+                    RSI WILDER · MACD FULL SERIES · RS vs IHSG<br>
+                    SECTOR MOMENTUM · FOREIGN FLOW REAL · BACKTEST REALISTIS<br>
+                    BANDARMOLOGI · CHART PATTERN · WYCKOFF · RISK MANAGER
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            return
+
+        strong = sum(1 for s in stocks if s.get("score", 0) >= 72)
+        buy    = sum(1 for s in stocks if 58 <= s.get("score", 0) < 72)
+        watch  = sum(1 for s in stocks if 45 <= s.get("score", 0) < 58)
+        rs_out = sum(1 for s in stocks if s.get("rs_outperform", False))
+
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
+        metric_card(col1, "📋 TOTAL",        len(stocks))
+        metric_card(col2, "🔥 STRONG+",      strong, "#00ff88")
+        metric_card(col3, "🟢 BUY",          buy,    "#7dff6b")
+        metric_card(col4, "🟡 WATCH",        watch,  "#ffd700")
+        metric_card(col5, "📈 RS Outperform",rs_out, "#00c8ff")
+        metric_card(col6, "🕐 SCAN",         st.session_state.get('scan_time', '-'), "#8b949e")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        search = st.text_input("🔍 Cari ticker:", "", placeholder="Contoh: BBCA")
+        display_stocks = ([s for s in stocks if search.upper() in s.get("ticker", "")]
+                          if search else stocks)
+
+        st.subheader("📋 HASIL SCAN")
+        table_data = []
+        for s in display_stocks[:100]:
+            b = s.get("bandar", {}); f = s.get("foreign", {})
+            _rs_v = s.get("rs_score", 50)
+            rs_icon = "⭐" if _rs_v > 55 else ("➡️" if _rs_v >= 45 else "⬇️")
+            table_data.append({
+                "Ticker":  s.get("ticker", ""),
+                "Harga":   fmt_price(s.get("price", 0)),
+                "Change%": f"{s.get('change', 0):+.1f}%",
+                "Score":   s.get("score", 0),
+                "Rating":  f"{rating_icon(s.get('rating',''))} {s.get('rating','')}",
+                "Konf":    s.get("confirmations", 0),
+                "RSI":     s.get("rsi", 0),
+                "Vol":     f"{s.get('vol_ratio', 0):.1f}x",
+                "ADX":     s.get("adx", 0),
+                "RS":      f"{rs_icon}{s.get('rs_score',50):.0f}",
+                "Sektor#": f"#{s.get('sec_rank',7)}",
+                "Bandar":  (b.get("fase","").split(" ")[1] if len(b.get("fase","").split(" ")) > 1 else ""),
+                "Foreign": f.get("flow_status", ""),
+                "Wyckoff": s.get("wyckoff", ""),
+                "Sektor":  s.get("sector", ""),
+            })
+
+        st.dataframe(
+            pd.DataFrame(table_data), use_container_width=True, hide_index=True,
+            column_config={"Score": st.column_config.ProgressColumn(
+                "Score", min_value=0, max_value=100, format="%d")}
+        )
+
+        csv_data = export_to_csv(display_stocks[:300])
+        st.download_button("📥 Export CSV", csv_data,
+                           file_name=f"scan_v2_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                           mime="text/csv")
+
+        st.divider()
+        st.subheader("📈 DETAIL PER SAHAM")
+        ticker_options = [s.get("ticker", "") for s in stocks[:50]]
+        selected_ticker = st.selectbox("Pilih saham untuk detail:", ticker_options)
+
+        if selected_ticker:
+            stock_data = next((s for s in stocks if s.get("ticker") == selected_ticker), None)
+            if stock_data:
+                b  = stock_data.get("bandar", {})
+                f  = stock_data.get("foreign", {})
+                tp = stock_data.get("trade_plan", {})
+                rs = stock_data.get("rs_data", {})
+
+                col_d1, col_d2, col_d3, col_d4 = st.columns(4)
+                with col_d1: st.metric("Harga",      fmt_price(stock_data.get("price", 0)),
+                                       f"{stock_data.get('change', 0):+.1f}%")
+                with col_d2: st.metric("Score",      f"{stock_data.get('score', 0)}/100")
+                with col_d3: st.metric("Rating",     stock_data.get("rating", ""))
+                with col_d4:
+                    _rs_val = stock_data.get('rs_score', 50)
+                    _rs_label = ("⭐ Outperform" if _rs_val > 55
+                                 else ("➡️ Netral" if _rs_val >= 45
+                                       else "⬇️ Underperform"))
+                    st.metric("RS vs IHSG", f"{_rs_val:.0f}/100", _rs_label)
+
+                det_tab1, det_tab2, det_tab3, det_tab4, det_tab5, det_tab6 = st.tabs([
+                    "📊 Teknikal", "📈 RS & Sektor", "🐋 Bandar", "🌏 Foreign", "💰 Trading Plan", "🤖 AI"
+                ])
+
+                with det_tab1:
+                    col_tek1, col_tek2 = st.columns(2)
+                    with col_tek1:
+                        st.markdown("**📈 Indikator (v2.0 — Fixed)**")
+                        st.markdown(f"""
+                        - **RSI (Wilder):** {stock_data.get('rsi', 0)} ← *akurat seperti TradingView*
+                        - **MACD:** {stock_data.get('macd', 0):.4f} (hist: {stock_data.get('macd_hist', 0):.4f}) ← *full series*
+                        - **MACD Signal:** {stock_data.get('macd_signal', 0):.4f}
+                        - **Stochastic:** %K {stock_data.get('stoch_k', 0)} / %D {stock_data.get('stoch_d', 0)}
+                        - **ADX:** {stock_data.get('adx', 0)}
+                        - **BB Position:** {stock_data.get('bb_pos', 0)}%
+                        - **Support:** {fmt_price(stock_data.get('support', 0)) if stock_data.get('support') else 'N/A'}
+                        - **Resistance:** {fmt_price(stock_data.get('resistance', 0)) if stock_data.get('resistance') else 'N/A'}
+                        """)
+                    with col_tek2:
+                        st.markdown("**📊 Moving Averages & Position**")
+                        st.markdown(f"""
+                        - **MA50:** {'✅ Di atas' if stock_data.get('above_ma50') else '❌ Di bawah'}
+                        - **MA200:** {'✅ Di atas' if stock_data.get('above_ma200') else '❌ Di bawah'}
+                        - **Golden Cross:** {'✅ Ya' if stock_data.get('golden_cross') else '❌ Tidak'}
+                        - **52W Position:** {stock_data.get('pos52w', 0)}%
+                        - **Wyckoff Phase:** {stock_data.get('wyckoff', '')}
+                        - **Volume Ratio:** {stock_data.get('vol_ratio', 0):.2f}x
+                        - **ATR:** {fmt_price(stock_data.get('atr', 0))}
+                        """)
+                    st.markdown("**🕯️ Chart Pattern**")
+                    patterns = stock_data.get('patterns', [])
+                    if patterns:
+                        for p in patterns:
+                            color = ("#00ff88" if p["signal"] == "BULLISH" else
+                                     "#ff4444" if p["signal"] == "BEARISH" else "#ffd700")
+                            st.markdown(
+                                f"<span style='background:{color}22;border:1px solid {color}44;"
+                                f"color:{color};border-radius:4px;padding:3px 8px;font-size:0.75rem;"
+                                f"margin:2px;display:inline-block'>{p['name']} {p['confidence']}% · {p['description']}</span>",
+                                unsafe_allow_html=True)
+                    else:
+                        st.info("Tidak ada pattern terdeteksi")
+                    st.markdown("**⚡ Sinyal**")
+                    for sig in stock_data.get('signals', []):
+                        st.markdown(f"<span class='signal-tag'>{sig}</span>", unsafe_allow_html=True)
+
+                with det_tab2:
+                    st.markdown("### 📈 RELATIVE STRENGTH vs IHSG")
+                    rs_score = stock_data.get("rs_score", 50)
+                    rs_ratio = stock_data.get("rs_ratio", 1.0)
+                    rs_trend = stock_data.get("rs_trend", "STABLE")
+                    rs_1m    = stock_data.get("rs_1m", 0)
+                    rs_3m    = stock_data.get("rs_3m", 0)
+                    outperform = stock_data.get("rs_outperform", False)
+
+                    rs_color = "#00ff88" if outperform else "#ff4444"
+                    rs_text  = "⭐ OUTPERFORM IHSG" if outperform else "⬇️ UNDERPERFORM IHSG"
+
+                    st.markdown(f"""
+                    <div class='fase-card' style='background:{rs_color}0d;border-left-color:{rs_color}'>
+                        <span class='fase-icon'>{'⭐' if outperform else '📉'}</span>
+                        <div>
+                            <div class='fase-text' style='color:{rs_color}'>{rs_text}</div>
+                            <div style='font-family:"JetBrains Mono",monospace;font-size:0.72rem;color:var(--text-muted);margin-top:4px'>
+                                RS Ratio: {rs_ratio:.3f} · Trend: {rs_trend}
+                            </div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    col_rs1, col_rs2, col_rs3, col_rs4 = st.columns(4)
+                    metric_card(col_rs1, "RS Score",  f"{rs_score:.0f}/100", rs_color)
+                    metric_card(col_rs2, "RS Ratio",  f"{rs_ratio:.3f}",
+                                "#00ff88" if rs_ratio > 1 else "#ff4444")
+                    metric_card(col_rs3, "RS 1 Bulan",f"{rs_1m:+.2f}%",
+                                "#00ff88" if rs_1m > 0 else "#ff4444")
+                    metric_card(col_rs4, "RS 3 Bulan",f"{rs_3m:+.2f}%",
+                                "#00ff88" if rs_3m > 0 else "#ff4444")
+
+                    st.markdown("---")
+                    st.markdown("### 🏭 SECTOR MOMENTUM")
+                    sec_score = stock_data.get("sec_score", 50)
+                    sec_rank  = stock_data.get("sec_rank", 7)
+                    sec_change= stock_data.get("sec_change", 0)
+                    sec_name  = stock_data.get("sector", "")
+
+                    sm = st.session_state.get("sector_momentum", {})
+                    if sm and sec_name in sm:
+                        sec_info = sm[sec_name]
+                        sec_color = ("#00ff88" if sec_change > 1 else
+                                     "#ffd700" if sec_change > 0 else "#ff4444")
+                        st.markdown(f"""
+                        <div style='background:var(--bg-elevated);border:1px solid var(--border);
+                        border-radius:var(--radius-md);padding:16px;margin-bottom:12px'>
+                            <div style='font-family:"Syne",sans-serif;font-size:1rem;font-weight:800;
+                            color:{sec_color};margin-bottom:8px'>
+                                Sektor {sec_name} — Rank #{sec_rank}/13
+                            </div>
+                            <div style='font-family:"JetBrains Mono",monospace;font-size:0.75rem;color:var(--text-secondary)'>
+                                Trend: {sec_info.get('trend','N/A')} · 1W: {sec_change:+.2f}% · 1M: {sec_info.get('change_1m',0):+.2f}%
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                        # Show all sectors ranked
+                        st.markdown("**Ranking Semua Sektor:**")
+                        sorted_sectors = sorted(sm.items(), key=lambda x: x[1]["score"], reverse=True)
+                        for rank, (sn, sd) in enumerate(sorted_sectors, 1):
+                            bar_w = int(sd["score"])
+                            clr   = "#00ff88" if sd["change_1w"] > 1 else "#ffd700" if sd["change_1w"] > 0 else "#ff4444"
+                            highlight = " style='background:rgba(0,200,255,0.05);border-radius:4px'" if sn == sec_name else ""
+                            st.markdown(f"""
+                            <div class='info-row'{highlight}>
+                                <span>#{rank} <b style='color:{"#00c8ff" if sn==sec_name else "var(--text-primary)"}'>{sn}</b></span>
+                                <span style='color:{clr}'>{sd["change_1w"]:+.2f}% (1W)</span>
+                            </div>
+                            """, unsafe_allow_html=True)
+                    else:
+                        st.info("Data sektor belum dimuat. Jalankan scan untuk memuat.")
+
+                with det_tab3:
+                    st.markdown(f"""
+                    <div class='fase-card' style='background:{b.get("fase_color","#8b949e")}0d;
+                    border-left-color:{b.get("fase_color","#8b949e")}'>
+                        <span class='fase-icon'>{b.get('fase_emoji','')}</span>
+                        <span class='fase-text' style='color:{b.get("fase_color","#8b949e")}'>{b.get('fase','N/A')}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    col_ban1, col_ban2 = st.columns(2)
+                    with col_ban1:
+                        st.markdown("**📊 Indikator Bandar**")
+                        cmf_val   = b.get('cmf', 0)
+                        cmf_color = "#00ff88" if cmf_val > 0.05 else "#ff4444" if cmf_val < -0.05 else "#ffd700"
+                        st.markdown(f"""
+                        - **CMF:** <span style='color:{cmf_color}'>{cmf_val:+.4f}</span>
+                        - **VWAP:** {'✅ Di atas' if b.get('above_vwap') else '❌ Di bawah'}
+                        - **A/D Line:** {b.get('ad_trend', 'N/A')}
+                        - **OBV Trend:** {b.get('obv_trend', 'N/A')}
+                        - **Volume Ratio:** {b.get('vol_ratio', 1)}x
+                        - **Bandar Strength:** {b.get('bandar_strength', 50)}/100
+                        """, unsafe_allow_html=True)
+                    with col_ban2:
+                        st.markdown("**🔍 Sinyal Bandar**")
+                        for sig in b.get('signals', []):
+                            clr = "#00ff88" if "✅" in sig else "#ff4444" if "🔴" in sig else "#ffd700"
+                            st.markdown(f"<span style='color:{clr}; font-size:0.85rem'>• {sig}</span>",
+                                        unsafe_allow_html=True)
+
+                with det_tab4:
+                    data_src  = stock_data.get("foreign_data_source", "estimated")
+                    src_badge = ("📡 REAL DATA" if data_src != "estimated" else "📊 ESTIMATED")
+                    src_color = "#00ff88" if data_src != "estimated" else "#ffd700"
+                    st.markdown(f"""
+                    <div class='fase-card' style='background:{f.get("flow_color","#8b949e")}0d;
+                    border-left-color:{f.get("flow_color","#8b949e")}'>
+                        <span class='fase-icon'>{f.get("flow_emoji","")}</span>
+                        <div>
+                            <span class='fase-text' style='color:{f.get("flow_color","#8b949e")}'>{f.get("flow_status","N/A")}</span>
+                            <span style='font-family:"JetBrains Mono",monospace;font-size:0.65rem;
+                            color:{src_color};margin-left:10px;vertical-align:middle'>{src_badge}</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    col_for1, col_for2 = st.columns(2)
+                    with col_for1:
+                        st.markdown("**📊 Indikator Foreign**")
+                        ff_color = f.get("flow_color", "#8b949e")
+                        st.markdown(f"""
+                        - **Net Flow:** <span style='color:{ff_color}'>Rp {stock_data.get('net_foreign_flow', 0):,.0f}</span>
+                        - **Flow Strength:** {f.get('flow_strength', 50):.1f}/100
+                        - **Foreign Ratio:** {f.get('foreign_ratio', 0):.1f}%
+                        - **Est. Ownership:** {f.get('est_foreign_ownership', 0):.1f}%
+                        - **Data Source:** {data_src}
+                        """, unsafe_allow_html=True)
+                    with col_for2:
+                        st.markdown("**🔍 Sinyal Foreign**")
+                        for sig in f.get('signals', []):
+                            clr = ("#00ff88" if any(x in sig for x in ["✅","⚡","📡"]) else
+                                   "#ff4444" if any(x in sig for x in ["🔴","⚠️"]) else "#ffd700")
+                            st.markdown(f"<span style='color:{clr}; font-size:0.85rem'>• {sig}</span>",
+                                        unsafe_allow_html=True)
+
+                with det_tab5:
+                    if tp:
+                        sl_d  = tp.get('sl', {})
+                        tp_d  = tp.get('tp', {})
+                        pos_d = tp.get('position', {})
+                        st.markdown(f"""
+                        <div class='section-card' style='border-color:rgba(0,232,122,0.15)'>
+                            <div class='section-title'>📌 Rencana Trading</div>
+                            <div class='trade-grid'>
+                                <div class='trade-cell'>
+                                    <div class='trade-cell-label'>Entry</div>
+                                    <div class='trade-cell-val' style='color:var(--accent-gold)'>{fmt_price(stock_data.get('price', 0))}</div>
+                                </div>
+                                <div class='trade-cell' style='border-color:rgba(255,61,90,0.2)'>
+                                    <div class='trade-cell-label'>Stop Loss</div>
+                                    <div class='trade-cell-val' style='color:var(--accent-red)'>{fmt_price(sl_d.get('recommended', 0))}</div>
+                                    <div class='trade-cell-sub' style='color:var(--accent-red)'>-{sl_d.get('risk_pct', 0)}%</div>
+                                </div>
+                                <div class='trade-cell' style='border-color:rgba(0,232,122,0.15)'>
+                                    <div class='trade-cell-label'>TP1</div>
+                                    <div class='trade-cell-val' style='color:#7dff9a'>{fmt_price(tp_d.get('tp1', 0))}</div>
+                                    <div class='trade-cell-sub' style='color:#7dff9a'>+{tp_d.get('tp1_pct', 0)}%</div>
+                                </div>
+                                <div class='trade-cell' style='border-color:rgba(0,232,122,0.25)'>
+                                    <div class='trade-cell-label'>TP2 ⭐</div>
+                                    <div class='trade-cell-val' style='color:var(--accent-green)'>{fmt_price(tp_d.get('tp2', 0))}</div>
+                                    <div class='trade-cell-sub' style='color:var(--accent-green)'>+{tp_d.get('tp2_pct', 0)}%</div>
+                                </div>
+                            </div>
+                            <div style='background:var(--bg-elevated);border:1px solid var(--border);
+                            border-radius:var(--radius-sm);padding:12px;font-family:"JetBrains Mono",monospace;font-size:0.72rem'>
+                                <div style='display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)'>
+                                    <span style='color:var(--text-muted)'>Risk / Reward</span>
+                                    <span style='color:var(--accent-gold);font-weight:700'>1 : {tp_d.get('rr', 0)}</span>
+                                </div>
+                                <div style='display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)'>
+                                    <span style='color:var(--text-muted)'>Max Lot (risk 2%)</span>
+                                    <span style='color:var(--text-primary)'>{pos_d.get('lot', 1)} lot · {pos_d.get('lembar', 100):,} lembar</span>
+                                </div>
+                                <div style='display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)'>
+                                    <span style='color:var(--text-muted)'>Modal Dibutuhkan</span>
+                                    <span style='color:var(--text-primary)'>{fmt_price(pos_d.get('required_modal', 0))}</span>
+                                </div>
+                                <div style='display:flex;justify-content:space-between;padding:4px 0'>
+                                    <span style='color:var(--text-muted)'>Max Loss</span>
+                                    <span style='color:var(--accent-red)'>{fmt_price(pos_d.get('max_loss', 0))}</span>
+                                </div>
+                            </div>
+                            <div style='margin-top:10px;font-family:"JetBrains Mono",monospace;font-size:0.68rem;
+                            color:var(--text-muted);padding:8px;background:var(--bg-elevated);border-radius:var(--radius-sm)'>
+                                ⚙ {tp.get('adjustment_note', '')}
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                with det_tab6:
+                    if st.session_state.get('groq_api_key'):
+                        if st.button(f"🤖 Generate AI Analysis untuk {selected_ticker}", use_container_width=True):
+                            with st.spinner("AI sedang menganalisa..."):
+                                analysis = get_ai_analysis(stock_data, st.session_state['groq_api_key'])
+                                st.markdown(f"<div class='ai-output'>{analysis}</div>", unsafe_allow_html=True)
+                    else:
+                        st.info("💡 Set GROQ_API_KEY di environment untuk AI Analyst (GRATIS di console.groq.com)")
+
+                st.markdown("---")
+                st.subheader("📈 CHART")
+                if st.button("📊 Load Chart", key=f"chart_{selected_ticker}"):
+                    with st.spinner("Memuat chart..."):
+                        df_chart = st.session_state.get('chart_data', {}).get(selected_ticker)
+                        if df_chart is not None:
+                            fig = create_chart(df_chart, selected_ticker, tp)
+                            if fig: st.plotly_chart(fig, use_container_width=True,
+                                                    config={"displayModeBar": False})
+                        else:
+                            st.warning("Data chart tidak tersedia (perlu scan ulang dengan data live)")
+
+                wl = get_watchlist()
+                if selected_ticker in wl:
+                    if st.button("❌ Hapus dari Watchlist", use_container_width=True):
+                        remove_from_watchlist(selected_ticker); st.rerun()
+                else:
+                    if st.button("👀 Tambah ke Watchlist", use_container_width=True):
+                        add_to_watchlist(selected_ticker, scan_result=stock_data); st.rerun()
+
+    # ──────────────────────────────────────────────────────────
+    # ✅ NEW TAB: RELATIVE STRENGTH vs IHSG
+    # ──────────────────────────────────────────────────────────
+    with tab_rs:
+        st.markdown("### 📈 RELATIVE STRENGTH vs IHSG")
+        st.caption("Saham yang outperform IHSG = lebih kuat dari market = kandidat terbaik untuk trading")
+        st.divider()
+
+        stocks = st.session_state.get('stocks', [])
+        if not stocks:
+            st.info("Jalankan scan terlebih dahulu")
+        else:
+            outperformers  = sorted([s for s in stocks if s.get("rs_score", 50) > 55],
+                                   key=lambda x: x.get("rs_score", 50), reverse=True)
+            neutrals       = [s for s in stocks if 45 <= s.get("rs_score", 50) <= 55]
+            underperformers = sorted([s for s in stocks if s.get("rs_score", 50) < 45],
+                                     key=lambda x: x.get("rs_score", 50))
+
+            col_rs1, col_rs2, col_rs3, col_rs4 = st.columns(4)
+            metric_card(col_rs1, "⭐ Outperform (>55)", len(outperformers), "#00ff88")
+            metric_card(col_rs2, "➡️ Netral (45–55)",   len(neutrals),       "#ffd700")
+            metric_card(col_rs3, "⬇️ Underperform (<45)", len(underperformers), "#ff4444")
+            avg_rs = np.mean([s.get("rs_score",50) for s in stocks]) if stocks else 50
+            metric_card(col_rs4, "Avg RS Score", f"{avg_rs:.1f}", "#00c8ff")
+
+            st.divider()
+            col_left, col_right = st.columns(2)
+
+            with col_left:
+                st.markdown("**⭐ TOP 15 OUTPERFORM IHSG**")
+                for s in outperformers[:15]:
+                    rs_score = s.get("rs_score", 50)
+                    rs_1m    = s.get("rs_1m", 0)
+                    rs_3m    = s.get("rs_3m", 0)
+                    rt       = s.get("rs_trend","")
+                    trend_icon = "📈" if rt == "IMPROVING" else "📉" if rt == "WEAKENING" else "➡️"
+                    st.markdown(f"""
+                    <div class='info-row'>
+                        <span style='color:#e0e8ff;font-weight:bold'>{s['ticker']}</span>
+                        <span>
+                            <span style='color:#00ff88'>RS:{rs_score:.0f}</span>
+                            <span style='color:#ffd700;font-size:0.8rem'> 1M:{rs_1m:+.1f}%</span>
+                            <span style='color:#7a84a8;font-size:0.8rem'> 3M:{rs_3m:+.1f}%</span>
+                            <span style='font-size:0.8rem'> {trend_icon}</span>
+                        </span>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            with col_right:
+                st.markdown("**⬇️ TOP 15 UNDERPERFORM (HINDARI)**")
+                for s in underperformers[:15]:
+                    rs_score = s.get("rs_score", 50)
+                    rs_1m    = s.get("rs_1m", 0)
+                    rt       = s.get("rs_trend","")
+                    trend_icon = "📈" if rt == "IMPROVING" else "📉" if rt == "WEAKENING" else "➡️"
+                    st.markdown(f"""
+                    <div class='info-row'>
+                        <span style='color:#e0e8ff;font-weight:bold'>{s['ticker']}</span>
+                        <span>
+                            <span style='color:#ff4444'>RS:{rs_score:.0f}</span>
+                            <span style='color:#ffd700;font-size:0.8rem'> 1M:{rs_1m:+.1f}%</span>
+                            <span style='font-size:0.8rem'> {trend_icon}</span>
+                        </span>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            st.divider()
+            st.markdown("**🚀 RS IMPROVING — Momentum Meningkat vs IHSG**")
+            improving = sorted([s for s in stocks if s.get("rs_trend") == "IMPROVING"],
+                               key=lambda x: x.get("rs_score",0), reverse=True)
+            if improving:
+                for s in improving[:10]:
+                    st.markdown(
+                        f"<span style='background:#00ff8811;border:1px solid #00ff8833;color:#00ff88;"
+                        f"border-radius:4px;padding:3px 10px;font-size:0.8rem;margin:3px;display:inline-block'>"
+                        f"📈 {s['ticker']} (RS:{s.get('rs_score',50):.0f} · 1M:{s.get('rs_1m',0):+.1f}%)</span>",
+                        unsafe_allow_html=True)
+            else:
+                st.info("Tidak ada saham dengan RS improving signifikan")
+
+            st.divider()
+            # RS Score distribution chart
+            st.markdown("**📊 Distribusi RS Score**")
+            rs_scores = [s.get("rs_score", 50) for s in stocks]
+            fig_rs = go.Figure()
+            fig_rs.add_trace(go.Histogram(
+                x=rs_scores, nbinsx=20,
+                marker_color=[("#00ff88" if x > 50 else "#ff4444") for x in rs_scores],
+                opacity=0.8
+            ))
+            fig_rs.add_vline(x=50, line_dash="dash", line_color="#ffd700",
+                             annotation_text="IHSG Benchmark (50)")
+            fig_rs.update_layout(
+                height=280, paper_bgcolor="#070711", plot_bgcolor="#0d0d1a",
+                font=dict(color="#7a84a8", family="JetBrains Mono", size=10),
+                margin=dict(l=20, r=20, t=20, b=20),
+                xaxis_title="RS Score", yaxis_title="Jumlah Saham"
+            )
+            fig_rs.update_xaxes(gridcolor="#1e1e36")
+            fig_rs.update_yaxes(gridcolor="#1e1e36")
+            st.plotly_chart(fig_rs, use_container_width=True)
+
+            with st.expander("📖 Cara Membaca RS vs IHSG"):
+                st.markdown("""
+                **Relative Strength (RS) vs IHSG** mengukur seberapa kuat pergerakan saham dibandingkan benchmark (IHSG).
+
+                **RS Score > 50** → Saham lebih kuat dari IHSG (outperform) — *kandidat utama untuk trading*
+                **RS Score < 50** → Saham lebih lemah dari IHSG (underperform) — *hindari atau kurangi exposure*
+
+                **RS Trend:**
+                - **IMPROVING** → RS sedang naik = momentum membaik = sinyal positif kuat
+                - **WEAKENING** → RS sedang turun = momentum melemah = waspada
+                - **STABLE** → RS stabil
+
+                **Kenapa RS Penting?**
+                Saham yang outperform IHSG saat market naik, dan outperform saat market turun (turun lebih sedikit),
+                adalah saham paling sehat untuk di-trading. Institutional investor selalu prefer saham-saham ini.
+                """)
+
+    # ──────────────────────────────────────────────────────────
+    # ✅ NEW TAB: SECTOR MOMENTUM
+    # ──────────────────────────────────────────────────────────
+    with tab_sector:
+        st.markdown("### 🏭 SECTOR MOMENTUM ANALYSIS")
+        st.caption("Rotasi sektor real-time — ikuti sektor yang sedang hot untuk maximise profit")
+        st.divider()
+
+        sm = st.session_state.get("sector_momentum", {})
+        if not sm:
+            st.info("Klik **🚀 MULAI SCAN** untuk memuat data sector momentum")
+            if st.button("🔄 Load Sector Momentum Saja", use_container_width=True):
+                with st.spinner("Memuat sector momentum..."):
+                    sm = get_sector_momentum()
+                    st.session_state['sector_momentum'] = sm
+                    st.rerun()
+        else:
+            sorted_sectors = sorted(sm.items(), key=lambda x: x[1]["score"], reverse=True)
+
+            # Heatmap sektor
+            st.markdown("**🌡️ SECTOR HEATMAP**")
+            cols = st.columns(4)
+            for i, (sec_name, sec_info) in enumerate(sorted_sectors):
+                chg  = sec_info.get("change_1w", 0)
+                sc   = sec_info.get("score", 50)
+                rank = sec_info.get("rank", i + 1)
+                bg   = f"rgba(0,232,122,{min(0.25, chg/10 + 0.05)})" if chg > 0 else \
+                       f"rgba(255,61,90,{min(0.25, abs(chg)/10 + 0.05)})"
+                bc   = "#00ff88" if chg > 1 else "#7dff6b" if chg > 0 else \
+                       "#ff9944" if chg > -1 else "#ff4444"
+                with cols[i % 4]:
+                    st.markdown(f"""
+                    <div style='background:{bg};border:1px solid {bc}44;border-radius:8px;
+                    padding:12px;text-align:center;margin:3px;'>
+                        <div style='font-family:"JetBrains Mono",monospace;font-size:0.55rem;
+                        color:var(--text-muted);letter-spacing:1px'>#{rank}</div>
+                        <div style='font-family:"Syne",sans-serif;font-size:0.85rem;
+                        font-weight:800;color:{bc}'>{sec_name}</div>
+                        <div style='font-family:"JetBrains Mono",monospace;font-size:0.8rem;
+                        color:{bc};font-weight:700;margin-top:2px'>{chg:+.2f}%</div>
+                        <div style='font-family:"JetBrains Mono",monospace;font-size:0.62rem;
+                        color:var(--text-muted)'>{sec_info.get("trend","")}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            st.divider()
+            # Table detail
+            st.markdown("**📊 DETAIL SECTOR PERFORMANCE**")
+            sec_table = []
+            for sec_name, sec_info in sorted_sectors:
+                stocks_in_sec = [s for s in st.session_state.get('stocks', [])
+                                 if s.get("sector") == sec_name]
+                avg_score = np.mean([s.get("score",0) for s in stocks_in_sec]) if stocks_in_sec else 0
+                top_stock = max(stocks_in_sec, key=lambda x: x.get("score",0)).get("ticker","") if stocks_in_sec else "-"
+                sec_table.append({
+                    "Rank":       sec_info.get("rank", "-"),
+                    "Sektor":     sec_name,
+                    "Trend":      sec_info.get("trend",""),
+                    "1W Change":  f"{sec_info.get('change_1w',0):+.2f}%",
+                    "1M Change":  f"{sec_info.get('change_1m',0):+.2f}%",
+                    "Score":      f"{sec_info.get('score',50):.1f}/100",
+                    "Avg Stock Score": f"{avg_score:.0f}" if avg_score else "-",
+                    "Top Stock":  top_stock,
+                })
+            st.dataframe(pd.DataFrame(sec_table), use_container_width=True, hide_index=True)
+
+            st.divider()
+            # Bar chart momentum
+            st.markdown("**📊 Sector 1-Week Performance**")
+            sec_names = [s[0] for s in sorted_sectors]
+            sec_chgs  = [s[1].get("change_1w",0) for s in sorted_sectors]
+            colors    = ["#00ff88" if c > 0 else "#ff4444" for c in sec_chgs]
+            fig_sec = go.Figure(go.Bar(
+                x=sec_names, y=sec_chgs, marker_color=colors,
+                text=[f"{c:+.2f}%" for c in sec_chgs], textposition="outside",
+                opacity=0.85
+            ))
+            fig_sec.add_hline(y=0, line_dash="solid", line_color="#3a3f5c")
+            fig_sec.update_layout(
+                height=300, paper_bgcolor="#070711", plot_bgcolor="#0d0d1a",
+                font=dict(color="#7a84a8", family="JetBrains Mono", size=10),
+                margin=dict(l=20, r=20, t=20, b=20),
+                showlegend=False, yaxis_title="1W Change %"
+            )
+            fig_sec.update_xaxes(gridcolor="#1e1e36", tickangle=45)
+            fig_sec.update_yaxes(gridcolor="#1e1e36")
+            st.plotly_chart(fig_sec, use_container_width=True)
+
+            with st.expander("📖 Cara Baca Sector Momentum"):
+                st.markdown("""
+                **Sector Rotation** adalah strategi institusional — dana besar masuk ke sektor tertentu secara bergilir.
+                Dengan mengikuti sektor yang sedang hot, peluang profit jauh lebih besar.
+
+                **Cara menggunakan:**
+                1. Lihat sektor dengan rank #1-#3 dan perubahan 1W positif → ini sektor hot
+                2. Dari scanner, filter saham di sektor tersebut dengan score tertinggi
+                3. Kombinasikan dengan RS outperform IHSG → triple confirmation!
+
+                **Refresh rate:** Data sektor diupdate setiap 30 menit selama session.
+                """)
+
+    # ──────────────────────────────────────────────────────────
+    # TAB: FOREIGN FLOW
+    # ──────────────────────────────────────────────────────────
+    with tab_foreign:
+        st.markdown("### 🌏 FOREIGN FLOW ANALYSIS")
+        st.caption("Track arus dana investor asing — penggerak utama saham big cap IDX")
+
+        rti_loaded = bool(st.session_state.get('rti_data'))
+        if rti_loaded:
+            st.success(f"📡 Data REAL dari RTI/IDX — {len(st.session_state['rti_data'])} saham")
+        else:
+            st.warning("⚠️ Menggunakan estimasi volume-based (RTI tidak tersedia). Data real butuh koneksi ke RTI Business.")
+        st.divider()
+
+        stocks = st.session_state.get('stocks', [])
+        if not stocks:
+            st.info("Jalankan scan terlebih dahulu untuk melihat analisa foreign flow")
+        else:
+            total_net_buy  = sum(s.get("net_foreign_flow", 0) for s in stocks if s.get("net_foreign_flow", 0) > 0)
+            total_net_sell = abs(sum(s.get("net_foreign_flow", 0) for s in stocks if s.get("net_foreign_flow", 0) < 0))
+            net_buy_count  = sum(1 for s in stocks if s.get("net_foreign_flow", 0) > 0)
+            net_sell_count = sum(1 for s in stocks if s.get("net_foreign_flow", 0) < 0)
+
+            col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+            metric_card(col_f1, "🟢 Net Buy",     f"Rp {total_net_buy:,.0f}",  "#00ff88")
+            metric_card(col_f2, "🔴 Net Sell",    f"Rp {total_net_sell:,.0f}", "#ff4444")
+            metric_card(col_f3, "Saham Net Buy",  net_buy_count,               "#00ff88")
+            metric_card(col_f4, "Saham Net Sell", net_sell_count,              "#ff4444")
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.divider()
+
+            col_ff_left, col_ff_right = st.columns(2)
+            with col_ff_left:
+                st.markdown("**🟢 TOP 10 FOREIGN NET BUY**")
+                for s in sorted([s for s in stocks if s.get("net_foreign_flow", 0) > 0],
+                                 key=lambda x: x.get("net_foreign_flow", 0), reverse=True)[:10]:
+                    ff = s.get("foreign", {})
+                    src_badge = "📡" if s.get("foreign_data_source","") != "estimated" else "📊"
+                    st.markdown(f"""
+                    <div class='info-row'>
+                        <span style='color:#e0e8ff;font-weight:bold'>{s['ticker']} {src_badge}</span>
+                        <span>
+                            <span style='color:#00ff88'>+Rp {s.get('net_foreign_flow',0):,.0f}</span>
+                            <span style='color:#4a6a8a;font-size:0.8rem'> Str:{ff.get('flow_strength',50):.0f}</span>
+                        </span>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            with col_ff_right:
+                st.markdown("**🔴 TOP 10 FOREIGN NET SELL**")
+                for s in sorted([s for s in stocks if s.get("net_foreign_flow", 0) < 0],
+                                 key=lambda x: x.get("net_foreign_flow", 0))[:10]:
+                    ff = s.get("foreign", {})
+                    src_badge = "📡" if s.get("foreign_data_source","") != "estimated" else "📊"
+                    st.markdown(f"""
+                    <div class='info-row'>
+                        <span style='color:#e0e8ff;font-weight:bold'>{s['ticker']} {src_badge}</span>
+                        <span>
+                            <span style='color:#ff4444'>-Rp {abs(s.get('net_foreign_flow',0)):,.0f}</span>
+                            <span style='color:#4a6a8a;font-size:0.8rem'> Str:{ff.get('flow_strength',50):.0f}</span>
+                        </span>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            st.divider()
+            st.markdown("**⚡ FOREIGN DIVERGENCE (HARGA TURUN TAPI FOREIGN BUY)**")
+            divergence_stocks = sorted(
+                [s for s in stocks if s.get("foreign", {}).get("divergence", False)],
+                key=lambda x: x.get("foreign", {}).get("flow_strength", 0), reverse=True
+            )
+            if divergence_stocks:
+                for s in divergence_stocks[:8]:
+                    ff = s.get("foreign", {})
+                    st.markdown(
+                        f"<span style='background:#00ff8811;border:1px solid #00ff8833;color:#00ff88;"
+                        f"border-radius:4px;padding:3px 10px;font-size:0.8rem;margin:3px;display:inline-block'>"
+                        f"⚡ {s['ticker']} ({s.get('change',0):+.1f}% · Net:+Rp {s.get('net_foreign_flow',0):,.0f})</span>",
+                        unsafe_allow_html=True)
+            else:
+                st.info("Tidak ada foreign divergence signifikan saat ini")
+
+    # ──────────────────────────────────────────────────────────
+    # TAB: BANDARMOLOGI
+    # ──────────────────────────────────────────────────────────
+    with tab_bandar:
+        st.markdown("### 🐋 BANDARMOLOGI")
+        st.caption("Deteksi akumulasi & distribusi bandar menggunakan CMF, A/D Line, OBV, VWAP")
+        st.divider()
+        stocks = st.session_state.get('stocks', [])
+        if not stocks:
+            st.info("Jalankan scan terlebih dahulu")
+        else:
+            bandar_sorted = sorted(stocks, key=lambda x: x.get("bandar",{}).get("bandar_strength",0), reverse=True)
+            col_ban_left, col_ban_right = st.columns(2)
+            with col_ban_left:
+                st.markdown("**🐋 TOP 10 AKUMULASI BANDAR**")
+                for s in bandar_sorted[:10]:
+                    b  = s.get("bandar", {}); bs = b.get("bandar_strength", 50)
+                    bc = "#00ff88" if bs >= 65 else "#ffd700" if bs >= 45 else "#ff4444"
+                    st.markdown(f"""
+                    <div class='info-row'>
+                        <span style='color:#e0e8ff;font-weight:bold'>{s['ticker']}</span>
+                        <span><span style='color:{bc}'>{bs}/100</span>
+                        <span style='color:#ffd700;font-size:0.8rem'> CMF:{b.get('cmf',0):+.3f}</span></span>
+                    </div>
+                    """, unsafe_allow_html=True)
+            with col_ban_right:
+                st.markdown("**🔴 TOP 10 DISTRIBUSI (HINDARI)**")
+                for s in bandar_sorted[-10:][::-1]:
+                    b = s.get("bandar", {}); bs = b.get("bandar_strength", 50)
+                    st.markdown(f"""
+                    <div class='info-row'>
+                        <span style='color:#e0e8ff;font-weight:bold'>{s['ticker']}</span>
+                        <span><span style='color:#ff4444'>{bs}/100</span>
+                        <span style='color:#ffd700;font-size:0.8rem'> CMF:{b.get('cmf',0):+.3f}</span></span>
+                    </div>
+                    """, unsafe_allow_html=True)
+            st.divider()
+            st.markdown("**⚡ DIVERGENCE BULLISH (HARGA TURUN TAPI BANDAR AKUMULASI)**")
+            divergence = sorted(
+                [s for s in stocks if s.get("change",0)<0 and
+                 s.get("bandar",{}).get("ad_trend")=="UP" and
+                 s.get("bandar",{}).get("cmf",0)>0],
+                key=lambda x: x.get("bandar",{}).get("bandar_strength",0), reverse=True
+            )
+            if divergence:
+                for s in divergence[:8]:
+                    b = s.get("bandar", {})
+                    st.markdown(
+                        f"<span style='background:#00ff8811;border:1px solid #00ff8833;color:#00ff88;"
+                        f"border-radius:4px;padding:3px 10px;font-size:0.8rem;margin:3px;display:inline-block'>"
+                        f"⚡ {s['ticker']} ({s['change']:+.1f}% · CMF:{b.get('cmf',0):+.3f} · BS:{b.get('bandar_strength',50)})</span>",
+                        unsafe_allow_html=True)
+            else:
+                st.info("Tidak ada divergence signifikan saat ini")
+
+    # ──────────────────────────────────────────────────────────
+    # ✅ IMPROVED TAB: BACKTEST (Entry Next Day Open)
+    # ──────────────────────────────────────────────────────────
+    with tab_backtest:
+        st.markdown("### 🔬 BACKTEST STRATEGI v2.0")
+        st.caption("Entry di OPEN hari berikutnya (realistis) · RSI Wilder · MACD Full Series")
+
+        st.info("""
+        **✅ Perbaikan Backtest v2.0:**
+        - **Entry = Open hari BERIKUTNYA** (bukan close sinyal — lebih realistis!)
+        - **RSI Wilder's Smoothing** (sama seperti TradingView)
+        - **MACD Full Series** (tidak terpotong lagi)
+        """)
+        st.divider()
+
+        col_bt1, col_bt2, col_bt3 = st.columns([2, 1, 1])
+        with col_bt1: bt_ticker = st.text_input("Ticker untuk Backtest:", value="BBCA")
+        with col_bt2: bt_days   = st.selectbox("Periode:", [30, 60, 90, 180], index=1,
+                                                format_func=lambda x: f"{x} hari")
+        with col_bt3: bt_mode   = st.selectbox("Mode:", ["Single Saham", "Multi Saham"])
+
+        if st.button("▶️ Jalankan Backtest", type="primary", use_container_width=True):
+            bt_tickers = parse_tickers(bt_ticker)
+            if bt_tickers:
+                if bt_mode == "Single Saham":
+                    with st.spinner(f"⏳ Backtest {bt_tickers[0]}..."):
+                        bt_result = run_backtest(bt_tickers[0], bt_days)
+                        if bt_result and bt_result["total_trades"] > 0:
+                            st.success(f"Entry method: **{bt_result['entry_method']}**")
+                            col_m1,col_m2,col_m3,col_m4,col_m5,col_m6 = st.columns(6)
+                            metric_card(col_m1, "Total Trade", bt_result["total_trades"])
+                            metric_card(col_m2, "✅ Win",      bt_result["win_count"],  "#00ff88")
+                            metric_card(col_m3, "❌ Loss",     bt_result["loss_count"], "#ff4444")
+                            metric_card(col_m4, "🎯 Win Rate", f"{bt_result['win_rate']}%", "#ffd700")
+                            metric_card(col_m5, "📈 Avg P&L",  f"{bt_result['avg_pnl']:+.1f}%",
+                                        "#00ff88" if bt_result['avg_pnl'] > 0 else "#ff4444")
+                            metric_card(col_m6, "⏱️ Avg Hold", f"{bt_result['avg_days_held']}hr", "#8b949e")
+
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            col_bt_a,col_bt_b,col_bt_c,col_bt_d = st.columns(4)
+                            metric_card(col_bt_a, "Best Trade",    f"+{bt_result['best']}%",   "#00ff88")
+                            metric_card(col_bt_b, "Worst Trade",   f"{bt_result['worst']}%",   "#ff4444")
+                            metric_card(col_bt_c, "Profit Factor", bt_result["profit_factor"], "#ffd700")
+                            metric_card(col_bt_d, "TP Hit", f"{bt_result['tp_hit']}/{bt_result['total_trades']}", "#7dff6b")
+
+                            st.plotly_chart(create_backtest_chart(bt_result), use_container_width=True)
+
+                            st.markdown("**📋 Riwayat Trade (20 terakhir)**")
+                            st.dataframe(pd.DataFrame([{
+                                "#":           i+1,
+                                "Entry Date":  str(t["entry_date"])[:10],
+                                "Exit Date":   str(t["exit_date"])[:10],
+                                "Entry Rp":    fmt_price(t["entry"]),
+                                "Exit Rp":     fmt_price(t["exit_price"]),
+                                "P&L":         f"{t['pnl_pct']:+.2f}%",
+                                "Outcome":     t["outcome"],
+                                "Hold":        f"{t['days_held']}hr",
+                                "RSI Entry":   t["rsi"],
+                            } for i, t in enumerate(bt_result["trades"])]),
+                            use_container_width=True, hide_index=True)
+
+                            wr = bt_result["win_rate"]; pf = bt_result["profit_factor"]
+                            vc = "#00ff88" if wr >= 55 and pf >= 1.5 else "#ffd700" if wr >= 45 else "#ff4444"
+                            vt = ("✅ Sistem Profitable!" if wr >= 55 and pf >= 1.5
+                                  else "⚡ Moderat" if wr >= 45 else "⚠️ Perlu Perbaikan")
+                            st.markdown(f"""
+                            <div class='verdict-banner' style='background:{vc}0d;border:1px solid {vc}55;color:{vc}'>
+                                {vt} · Win Rate: {wr}% · Profit Factor: {pf}
+                            </div>
+                            """, unsafe_allow_html=True)
+                        else:
+                            st.warning("⚠️ Tidak cukup sinyal terdeteksi di periode ini")
+                else:
+                    all_bt = []
+                    pb_bt  = st.progress(0)
+                    for i, t in enumerate(bt_tickers[:15]):
+                        pb_bt.progress((i+1)/min(len(bt_tickers),15), f"Backtest {t}...")
+                        r = run_backtest(t, bt_days)
+                        if r: all_bt.append(r)
+                    pb_bt.empty()
+                    if all_bt:
+                        st.dataframe(pd.DataFrame([{
+                            "Ticker":        r["ticker"],
+                            "Entry Method":  r.get("entry_method",""),
+                            "Total Trade":   r["total_trades"],
+                            "Win Rate (%)":  r["win_rate"],
+                            "Avg P&L (%)":   r["avg_pnl"],
+                            "Best (%)":      f"+{r['best']}",
+                            "Worst (%)":     f"{r['worst']}",
+                            "Profit Factor": r["profit_factor"],
+                            "TP Hit":        r["tp_hit"],
+                            "SL Hit":        r["sl_hit"],
+                        } for r in all_bt]), use_container_width=True, hide_index=True)
+
+    # ──────────────────────────────────────────────────────────
+    # TAB: PORTFOLIO
+    # ──────────────────────────────────────────────────────────
+    with tab_portfolio:
+        st.markdown("### 💼 PORTFOLIO TRACKER")
+        st.caption("Catat posisi trading dan pantau P&L secara real-time")
+        st.divider()
+
+        current_prices = {s["ticker"]: s["price"] for s in st.session_state.get('stocks', [])}
+        summary = get_portfolio_summary(current_prices)
+        stats   = get_portfolio_stats()
+
+        pnl_color = "#00ff88" if summary["total_pnl"] >= 0 else "#ff4444"
+        col_p1, col_p2, col_p3, col_p4 = st.columns(4)
+        metric_card(col_p1, "💰 Total Modal",    fmt_price(summary["total_modal"]))
+        metric_card(col_p2, "📊 Nilai Sekarang", fmt_price(summary["total_value"]))
+        metric_card(col_p3, "💹 Total P&L",      fmt_price(summary["total_pnl"]),     pnl_color)
+        metric_card(col_p4, "📈 P&L %",          f"{summary['total_pnl_pct']:+.2f}%", pnl_color)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        with st.expander("➕ TAMBAH POSISI BARU", expanded=(len(summary['positions']) == 0)):
+            with st.form("add_position_form"):
+                col_a1, col_a2, col_a3, col_a4 = st.columns(4)
+                with col_a1: pos_ticker = st.text_input("Ticker:", placeholder="BBCA").upper()
+                with col_a2: pos_lot    = st.number_input("Lot:", min_value=1, value=1)
+                with col_a3: pos_entry  = st.number_input("Harga Entry (Rp):", min_value=1, value=1000)
+                with col_a4: pos_sl     = st.number_input("Stop Loss:", min_value=0, value=0)
+                pos_tp   = st.number_input("Take Profit:", min_value=0, value=0)
+                pos_note = st.text_input("Catatan:", placeholder="Alasan entry...")
+                if st.form_submit_button("➕ Tambah Posisi", use_container_width=True):
+                    if pos_ticker:
+                        add_position(pos_ticker, pos_lot, pos_entry,
+                                     pos_sl if pos_sl > 0 else None,
+                                     pos_tp if pos_tp > 0 else None, pos_note)
+                        st.success(f"✅ Posisi {pos_ticker} ditambahkan!")
+                        st.rerun()
+
+        st.divider()
+        st.markdown("### 📊 POSISI AKTIF")
+        if not summary['positions']:
+            st.info("Belum ada posisi aktif.")
+        else:
+            for pos in summary['positions']:
+                pnl_rp  = (pos["curr"] - pos["entry"]) * pos["lembar"]
+                pnl_pct = round(pnl_rp / pos["modal"] * 100, 2)
+                pnl_c   = "#00ff88" if pnl_pct >= 0 else "#ff4444"
+                sl_warn = pos.get("sl") and pos["curr"] <= pos["sl"] * 1.02
+                tp_hit  = pos.get("tp") and pos["curr"] >= pos["tp"] * 0.98
+                icon    = "🚨" if sl_warn else "🎯" if tp_hit else "📈" if pnl_pct >= 0 else "📉"
+                with st.expander(f"{icon} {pos['ticker']} | {pos['lot']} lot | P&L: {pnl_pct:+.2f}%"):
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        st.metric("Entry",      fmt_price(pos["entry"]))
+                        st.metric("Harga Skrg", fmt_price(pos["curr"]), f"{pnl_pct:+.2f}%")
+                    with c2:
+                        st.metric("P&L (Rp)",   fmt_price(pnl_rp))
+                        st.metric("Modal",      fmt_price(pos["modal"]))
+                    with c3:
+                        if pos.get("sl"): st.metric("Stop Loss",   fmt_price(pos["sl"]))
+                        if pos.get("tp"): st.metric("Take Profit", fmt_price(pos["tp"]))
+                    if sl_warn: st.error("🚨 HARGA MENDEKATI STOP LOSS!")
+                    if tp_hit:  st.success("🎯 HARGA MENDEKATI TAKE PROFIT!")
+                    exit_price = st.number_input("Harga Jual:", min_value=1, value=int(pos["curr"]),
+                                                 key=f"exit_{pos['ticker']}")
+                    if st.button(f"💰 Tutup Posisi", key=f"close_{pos['ticker']}", use_container_width=True):
+                        result = close_position(pos['ticker'], exit_price)
+                        if result:
+                            st.success(f"✅ Ditutup! P&L: {result['pnl_pct']:+.2f}%")
+                            st.rerun()
+
+        if stats['total_trades'] > 0:
+            st.divider()
+            st.markdown("### 📊 STATISTIK TRADING")
+            col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+            metric_card(col_s1, "Total Trade", stats['total_trades'])
+            metric_card(col_s2, "Win Rate",    f"{stats['win_rate']}%",
+                        "#00ff88" if stats['win_rate'] >= 50 else "#ff4444")
+            metric_card(col_s3, "Best Trade",  f"+{stats['best_trade']}%", "#00ff88")
+            metric_card(col_s4, "Worst Trade", f"{stats['worst_trade']}%", "#ff4444")
+            closed = get_closed_trades()
+            if closed:
+                st.dataframe(pd.DataFrame([{
+                    "Ticker": t["ticker"], "Entry Date": t["date"][:10],
+                    "Exit Date": t["exit_date"][:10],
+                    "Entry Rp": fmt_price(t["entry"]), "Exit Rp": fmt_price(t["exit"]),
+                    "P&L": f"{t['pnl_pct']:+.2f}%", "P&L Rp": fmt_price(t["pnl_rp"]),
+                    "Outcome": t["outcome"],
+                } for t in closed[-20:]]), use_container_width=True, hide_index=True)
+                if st.button("🗑️ Hapus Riwayat"):
+                    st.session_state.closed_trades = []; st.rerun()
+
+    # ──────────────────────────────────────────────────────────
+    # TAB: WATCHLIST
+    # ──────────────────────────────────────────────────────────
+    with tab_watchlist:
+        st.markdown("### 👀 WATCHLIST")
+        st.divider()
+        with st.form("add_watchlist_form"):
+            c1, c2, c3 = st.columns([2, 2, 1])
+            with c1: wl_ticker = st.text_input("Ticker:", placeholder="BBCA").upper()
+            with c2: wl_note   = st.text_input("Catatan:", placeholder="Breakout resistance")
+            with c3: wl_alert  = st.number_input("Alert Price:", min_value=0.0, value=0.0)
+            if st.form_submit_button("➕ Tambah", use_container_width=True):
+                if wl_ticker:
+                    add_to_watchlist(wl_ticker, wl_note, wl_alert if wl_alert > 0 else None)
+                    st.success(f"✅ {wl_ticker} ditambahkan!"); st.rerun()
+        st.divider()
+        wl = get_watchlist()
+        if not wl:
+            st.info("Watchlist kosong.")
+        else:
+            st.success(f"📋 {len(wl)} saham di watchlist")
+            current_prices_wl = {s["ticker"]: s for s in st.session_state.get('stocks', [])}
+            for ticker, data in wl.items():
+                scan_data = current_prices_wl.get(ticker, {})
+                price     = scan_data.get("price")    if scan_data else data.get("last_price")
+                score     = scan_data.get("score")    if scan_data else data.get("last_score")
+                category  = scan_data.get("category") if scan_data else data.get("last_category")
+                change    = scan_data.get("change")   if scan_data else None
+                rs_score  = scan_data.get("rs_score") if scan_data else None
+                sc_color  = "#00ff88" if (score or 0) >= 65 else "#ffd700" if (score or 0) >= 45 else "#8b949e"
+                ch_color  = "#00ff88" if (change or 0) >= 0 else "#ff4444"
+                ch_str    = f"{change:+.1f}%" if change is not None else ""
+                with st.expander(f"👀 {ticker} | {category or 'Belum di-scan'}"):
+                    c1, c2 = st.columns([3, 1])
+                    with c1:
+                        if score:
+                            st.markdown(f"**Score:** <span style='color:{sc_color};'>{score}/100</span>",
+                                        unsafe_allow_html=True)
+                        if rs_score:
+                            rs_c = "#00ff88" if rs_score > 50 else "#ff4444"
+                            st.markdown(f"**RS vs IHSG:** <span style='color:{rs_c};'>{rs_score:.0f}/100</span>",
+                                        unsafe_allow_html=True)
+                        if price:
+                            st.markdown(f"**Harga:** {fmt_price(price)} "
+                                        f"<span style='color:{ch_color};'>{ch_str}</span>",
+                                        unsafe_allow_html=True)
+                        if data.get("note"):       st.markdown(f"**📝 Catatan:** {data['note']}")
+                        if data.get("alert_price"):
+                            status = "✅ Tercapai!" if price and price >= data['alert_price'] else "⏳"
+                            st.markdown(f"**🔔 Alert Price:** {fmt_price(data['alert_price'])} — {status}")
+                        st.markdown(f"**📅 Ditambahkan:** {data.get('added_at','')[:16]}")
+                    with c2:
+                        if st.button("❌ Hapus", key=f"rm_{ticker}", use_container_width=True):
+                            remove_from_watchlist(ticker); st.rerun()
+                        if st.button("📊 Scan", key=f"scan_{ticker}", use_container_width=True):
+                            with st.spinner(f"Scanning {ticker}..."):
+                                ihsg = st.session_state.get('ihsg_closes')
+                                sm   = st.session_state.get('sector_momentum')
+                                rd   = st.session_state.get('rti_data')
+                                res  = fetch_batch([ticker], ihsg, sm, rd)
+                                if res and res[0]:
+                                    add_to_watchlist(ticker, data.get("note",""),
+                                                     data.get("alert_price"), res[0])
+                                    st.success(f"Score: {res[0]['score']}/100"); st.rerun()
+
+    # ──────────────────────────────────────────────────────────
+    # TAB: AI ANALYST
+    # ──────────────────────────────────────────────────────────
+    with tab_ai:
+        st.markdown("### 🤖 AI ANALYST v2.0")
+        st.caption("Analisis dengan konteks RS vs IHSG + Sector Momentum + RSI Wilder + MACD Fix")
+        st.divider()
+        if not st.session_state.get('groq_api_key'):
+            st.warning("⚠️ Set GROQ_API_KEY di environment (gratis di console.groq.com)")
+        else:
+            stocks = st.session_state.get('stocks', [])
+            if not stocks:
+                st.info("Jalankan scan terlebih dahulu")
+            else:
+                ticker_options = [s.get("ticker", "") for s in stocks[:30]]
+                ai_ticker = st.selectbox("Pilih saham:", ticker_options)
+                if ai_ticker:
+                    stock_data = next((s for s in stocks if s.get("ticker") == ai_ticker), None)
+                    if stock_data:
+                        col_ai1,col_ai2,col_ai3,col_ai4 = st.columns(4)
+                        metric_card(col_ai1, "Harga",       fmt_price(stock_data.get("price",0)))
+                        metric_card(col_ai2, "Score",       f"{stock_data.get('score',0)}/100")
+                        metric_card(col_ai3, "RS vs IHSG",  f"{stock_data.get('rs_score',50):.0f}/100",
+                                    "#00ff88" if stock_data.get('rs_outperform') else "#ff4444")
+                        metric_card(col_ai4, "Sektor Rank", f"#{stock_data.get('sec_rank',7)}/13")
+                        if st.button("🤖 Generate AI Analysis", type="primary", use_container_width=True):
+                            with st.spinner("AI sedang menganalisa..."):
+                                analysis = get_ai_analysis(stock_data, st.session_state['groq_api_key'])
+                                st.markdown(f"<div class='ai-output'>{analysis}</div>", unsafe_allow_html=True)
+
+# ============================================================
+# RUN
+# ============================================================
+if __name__ == "__main__":
+    main()
+
+
+
+"""
+╔══════════════════════════════════════════════════════════════╗
+║          SNIPER FX — Smart Money Scalping Scanner           ║
+║     28 Pairs | SMC + Classic | All Sessions | M5-H4         ║
+╚══════════════════════════════════════════════════════════════╝
+"""
+
+import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
@@ -3087,6 +8013,13 @@ COT_INVERSE = {"USDJPY", "USDCHF", "USDCAD"}  # USD is base, so inverse
 # ============================================================
 # CONFIG & CONSTANTS
 # ============================================================
+
+st.set_page_config(
+    page_title="SNIPER FX",
+    page_icon="🎯",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 MAJOR_PAIRS = {
     "EURUSD": "EUR/USD", "GBPUSD": "GBP/USD", "USDJPY": "USD/JPY",
@@ -4496,156 +9429,2886 @@ def render_ai_tab(r):
 
 
 # ============================================================
-# ─── SESSION STATE + HELPERS (App3) ──────────
-# ════════════════════════════════════════════════════════════
-# SESSION STATE
-# ════════════════════════════════════════════════════════════
-defaults = {
-    'results'       : [],
-    'trade_plans'   : {},
-    'ml_results'    : {},
-    'pattern_results': {},
-    'sentiment_results': {},
-    'last_scan_time': None,
-    'auto_refresh'  : False,
-    'scan_count'    : 0,
-    'modal'         : 10_000_000,
-    'tickers'       : ["BBCA","BBRI","BMRI","TLKM","ASII","UNVR","KLBF","ADRO","ANTM","MDKA"],
-    'ml_cache'      : {},
-    'enable_ml'     : False,
-    'enable_pattern': True,
-    'enable_sentiment': False,
+# HEADER
+# ============================================================
+
+st.markdown("""
+<div class='hdr'>
+    <div class='hdr-title'>🎯 SNIPER FX</div>
+    <div class='hdr-sub'>SMART MONEY SCALPING SCANNER — 28 PAIRS — SMC + CLASSIC — M5 / H1 / H4</div>
+</div>
+""", unsafe_allow_html=True)
+
+# ============================================================
+# SIDEBAR
+# ============================================================
+
+with st.sidebar:
+    st.markdown("### ⚙️ SCANNER CONFIG")
+    st.divider()
+
+    active_sess=get_active_sessions()
+    ss_val,ss_note=get_session_score(active_sess)
+    st.markdown("**📡 SESSIONS (UTC)**")
+    for sn in ["Sydney","Tokyo","London","New York"]:
+        ia=sn in active_sess
+        col="#00ff88" if ia else "#1a3a5c"
+        dot=f"<span class='sess-dot' style='background:{col};{'box-shadow:0 0 6px '+col if ia else ''}'></span>"
+        st.markdown(f"<div style='font-size:12px;color:{col};font-family:Share Tech Mono'>{dot}{sn}</div>",
+                    unsafe_allow_html=True)
+    sc_color="#00ff88" if ss_val>=75 else "#ffd700" if ss_val>=50 else "#ff3355"
+    st.markdown(f"<div style='margin-top:8px;padding:7px;background:#0d1e2e;"
+                f"border-left:3px solid {sc_color};font-family:Share Tech Mono;font-size:11px;"
+                f"color:{sc_color}'>Session Score: {ss_val}/100<br>{ss_note}</div>",
+                unsafe_allow_html=True)
+
+    st.divider()
+    st.markdown("**🌐 PAIRS**")
+    pg=st.selectbox("Pair Group",["All (29)","Major (7)","Minor/Cross (21)","Commodities (XAUUSD)","Custom"])
+    cp_list=[]
+    if pg=="Custom":
+        cp_list=st.multiselect("Select",list(ALL_PAIRS.keys()),default=["EURUSD","GBPUSD","USDJPY"])
+
+    st.divider()
+    st.markdown("**🎛️ FILTERS**")
+    min_sc=st.slider("Min Score",0,100,50)
+    min_cf=st.slider("Min Confirmations",0,10,3)
+    show_r=st.multiselect("Ratings",["🎯 SNIPER","⚡ STRONG","✅ SETUP","👀 WATCH","⏳ WAIT","🚫 AVOID"],
+                           default=["🎯 SNIPER","⚡ STRONG","✅ SETUP","👀 WATCH","⏳ WAIT","🚫 AVOID"])
+    dir_f=st.selectbox("Direction",["All","BUY only","SELL only"])
+
+    st.divider()
+    st.markdown("""<div style='font-size:10px;color:#1a3a5c;font-family:Share Tech Mono;line-height:1.8'>
+    ◈ SMC: Smart Money Concepts<br>◈ OB: Order Block<br>◈ FVG: Fair Value Gap<br>
+    ◈ BOS: Break of Structure<br>◈ CHoCH: Change of Character<br>◈ P/D: Premium/Discount Zone
+    </div>""", unsafe_allow_html=True)
+
+# ============================================================
+# PAIRS TO SCAN
+# ============================================================
+
+if pg=="Major (7)":            pairs=list(MAJOR_PAIRS.keys())
+elif pg=="Minor/Cross (21)":   pairs=list(MINOR_PAIRS.keys())
+elif pg=="Commodities (XAUUSD)": pairs=list(COMMODITY_PAIRS.keys())
+elif pg=="Custom":             pairs=cp_list if cp_list else list(MAJOR_PAIRS.keys())
+else:                          pairs=list(ALL_PAIRS.keys())
+
+# ============================================================
+# SCAN + QUICK ANALYZE BUTTONS
+# ============================================================
+
+cb1,cb2,cb3=st.columns([2,1,1])
+with cb1: scan_btn=st.button(f"🔍 SCAN {len(pairs)} PAIRS",use_container_width=True)
+with cb2:
+    if st.button("🔄 CLEAR CACHE",use_container_width=True):
+        st.cache_data.clear(); st.rerun()
+with cb3:
+    qp=st.selectbox("Quick Analyze",["—"]+list(ALL_PAIRS.keys()),label_visibility="collapsed")
+
+# ============================================================
+# QUICK SINGLE PAIR
+# ============================================================
+
+if qp and qp != "—":
+    with st.spinner(f"Analyzing {qp}..."):
+        res=analyze(qp)
+    dc_=dc(res["direction"]); sc_=sc(res["score"])
+    arrow="▲" if res["direction"]=="BUY" else "▼" if res["direction"]=="SELL" else "◆"
+    dclass="buy" if res["direction"]=="BUY" else "sell" if res["direction"]=="SELL" else "neutral"
+
+    st.markdown(f"""<div class='signal-card {dclass}'>
+    <div style='display:flex;justify-content:space-between;align-items:center'>
+        <div><span style='font-size:22px;font-weight:900;color:#e0f0ff;font-family:Share Tech Mono;
+            letter-spacing:2px'>{res["symbol"]}</span>
+        <span style='margin-left:10px;color:#5a7a9a;font-family:Share Tech Mono;font-size:13px'>
+            {res["name"]} · {res["price"]:.5f}</span></div>
+        <div style='text-align:right'>{badge(res["rating"])}
+        <div style='font-size:22px;color:{dc_};font-weight:900;margin-top:4px'>{arrow} {res["direction"]}</div></div>
+    </div></div>""", unsafe_allow_html=True)
+
+    ca,cb_,cc,cd,ce=st.columns(5)
+    mcard(ca,"SCORE",f"{res['score']}/100",sc_)
+    mcard(cb_,"H4 BIAS",res["bias"],"#ffd700")
+    mcard(cc,"CONFIRMATIONS",res["confirmations"],"#00bfff")
+    mcard(cd,"ZONE",res["premium_zone"],"#ff8c00")
+    mcard(ce,"RR RATIO",f"1:{res['rr_ratio']:.1f}","#ff8c00")
+
+    st.markdown("<br>",unsafe_allow_html=True)
+    ca2,cb2_,cc2=st.columns(3)
+    mcard(ca2,"RSI",res["rsi"])
+    mcard(cb2_,"ADX",res["adx"])
+    mcard(cc2,"STOCH",f"{res['stoch_k']:.0f}")
+
+    if res["direction"]!="NEUTRAL" and res["sl_pips"]>0:
+        tc="#00ff88" if res["direction"]=="BUY" else "#ff3355"
+        st.markdown(f"""<div class='alert-box'>
+        <b style='color:{tc}'>📍 {res["direction"]} ENTRY PLAN</b><br>
+        Entry <b>{res["price"]:.5f}</b> &nbsp;|&nbsp;
+        SL <b style='color:#ff3355'>{res["sl_price"]:.5f}</b> ({res["sl_pips"]}p) &nbsp;|&nbsp;
+        TP1 <b style='color:#00ff88'>{res["tp1_price"]:.5f}</b> ({res["tp1_pips"]}p) &nbsp;|&nbsp;
+        TP2 <b style='color:#00ff88'>{res["tp2_price"]:.5f}</b> ({res["tp2_pips"]}p) &nbsp;|&nbsp;
+        <b style='color:#ffd700'>RR 1:{res["rr_ratio"]:.1f}</b>
+        </div>""", unsafe_allow_html=True)
+
+    t1,t2,t3,t4,t5,t6=st.tabs(["📈 CHART","📡 SIGNALS","⚠️ WARNINGS","🏗️ SMC ZONES","📋 COT REPORT","🤖 AI ANALYSIS"])
+    with t1:
+        render_chart_tab(res)
+    with t2:
+        for s in res["signals"]:
+            st.markdown(f"<span class='conf-tag conf-pos'>{s}</span>",unsafe_allow_html=True)
+    with t3:
+        for w in res["warnings"]:
+            st.markdown(f"<span class='conf-tag conf-neg'>{w}</span>",unsafe_allow_html=True)
+        if not res["warnings"]: st.success("No warnings ✓")
+    with t4:
+        if res["order_blocks"]:
+            st.markdown("**Order Blocks**")
+            for ob in res["order_blocks"]:
+                c_="#00ff88" if ob["type"]=="BULL" else "#ff3355"
+                st.markdown(f"<div class='info-row'><span style='color:{c_}'>{ob['type']} OB</span>"
+                            f"<span style='color:#7a9abf;font-family:Share Tech Mono;font-size:11px'>"
+                            f"{ob['low']:.5f}–{ob['high']:.5f} str:{ob['str']}</span></div>",
+                            unsafe_allow_html=True)
+        if res["fvg"]:
+            st.markdown("**Fair Value Gaps**")
+            for f in res["fvg"]:
+                c_="#00bfff" if f["type"]=="BULL" else "#ff8c00"
+                st.markdown(f"<div class='info-row'><span style='color:{c_}'>{f['type']} FVG</span>"
+                            f"<span style='color:#7a9abf;font-family:Share Tech Mono;font-size:11px'>"
+                            f"{f['bot']:.5f}–{f['top']:.5f}</span></div>",
+                            unsafe_allow_html=True)
+    with t5:
+        _render_cot_tab(res["cot"], res["symbol"])
+    with t6:
+        render_ai_tab(res)
+    st.divider()
+
+# ============================================================
+# MAIN SCAN
+# ============================================================
+
+if scan_btn:
+    st.session_state["scan_results"]=[]
+    st.session_state["debug_log"]=[]
+
+    # Load COT data once for all pairs
+    cot_status = st.empty()
+    cot_status.markdown("<div style='font-family:Share Tech Mono;font-size:11px;color:#ffd700'>"
+                        "📋 Loading COT Report from CFTC...</div>", unsafe_allow_html=True)
+    cot_df = fetch_cot_data()
+    if cot_df is not None:
+        cot_status.markdown("<div style='font-family:Share Tech Mono;font-size:11px;color:#00ff88'>"
+                            f"✅ COT Report loaded — {len(cot_df)} records</div>", unsafe_allow_html=True)
+    else:
+        cot_status.markdown("<div style='font-family:Share Tech Mono;font-size:11px;color:#ff8c00'>"
+                            "⚠️ COT data unavailable — analysis continues without it</div>", unsafe_allow_html=True)
+
+    bar=st.progress(0,"Initializing...")
+    txt=st.empty()
+    results=[]
+    debug_log=[]
+    data_ok=0; data_fail=0
+    for i,sym in enumerate(pairs):
+        bar.progress((i+1)/len(pairs),f"Scanning {sym}... ({i+1}/{len(pairs)})")
+        txt.markdown(f"<div style='font-family:Share Tech Mono;font-size:11px;color:#5a7a9a'>"
+                     f"◈ Analyzing {ALL_PAIRS.get(sym,sym)}</div>",unsafe_allow_html=True)
+        try:
+            r = analyze(sym, cot_df)
+            results.append(r)
+            if r["price"] > 0:
+                data_ok += 1
+                debug_log.append(f"✅ {sym}: price={r['price']:.5f} score={r['score']} rating={r['rating']}")
+            else:
+                data_fail += 1
+                sig_preview = r["signals"][0] if r["signals"] else "no signal"
+                debug_log.append(f"❌ {sym}: no price data — {sig_preview}")
+        except Exception as e:
+            data_fail += 1
+            debug_log.append(f"💥 {sym}: exception — {str(e)[:80]}")
+            results.append({"symbol":sym,"name":ALL_PAIRS.get(sym,sym),"score":0,
+                "direction":"NEUTRAL","rating":"🚫 AVOID","confirmations":0,
+                "signals":[f"Error: {e}"],"warnings":[],"price":0,"rsi":50,"adx":20,
+                "bias":"RANGING","bos":False,"choch":False,"premium_zone":"EQ","premium_pct":50,
+                "sl_pips":0,"tp1_pips":0,"tp2_pips":0,"rr_ratio":0,"sl_price":0,
+                "tp1_price":0,"tp2_price":0,"buy_s":0,"sell_s":0,"macd":0,"macd_hist":0,
+                "stoch_k":50,"stoch_d":50,"bb_pct":50,"atr":0,"order_blocks":[],"fvg":[],
+                "h1_trend":"N/A","h4_bias":"N/A","m5_momentum":"N/A","cot":_cot_empty()})
+        # Small delay every 5 pairs to avoid yfinance rate limiting
+        if (i + 1) % 5 == 0:
+            import time; time.sleep(1)
+    bar.empty(); txt.empty(); cot_status.empty()
+    st.session_state["scan_results"]=results
+    st.session_state["debug_log"]=debug_log
+    st.session_state["data_ok"]=data_ok
+    st.session_state["data_fail"]=data_fail
+
+# ============================================================
+# DISPLAY RESULTS
+# ============================================================
+
+if st.session_state.get("scan_results"):
+    results=st.session_state["scan_results"]
+
+    # ── DEBUG PANEL ──
+    data_ok   = st.session_state.get("data_ok", 0)
+    data_fail = st.session_state.get("data_fail", 0)
+    debug_log = st.session_state.get("debug_log", [])
+
+    if data_fail > 0:
+        with st.expander(f"⚠️ DEBUG — {data_ok} pairs OK / {data_fail} pairs FAILED (click to expand)", expanded=data_ok==0):
+            st.markdown(f"""<div style='background:#050a0e;border:1px solid #1a3a5c;border-radius:4px;
+            padding:12px;font-family:Share Tech Mono;font-size:11px;line-height:1.8'>""",
+            unsafe_allow_html=True)
+            for line in debug_log:
+                color = "#00ff88" if line.startswith("✅") else "#ff3355" if line.startswith(("❌","💥")) else "#ffd700"
+                st.markdown(f"<div style='color:{color}'>{line}</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+            if data_ok == 0:
+                st.markdown("""<div class='alert-box'>
+                <b style='color:#ff3355'>🚨 All data fetches failed</b><br>
+                yfinance cannot reach Yahoo Finance from this server.<br>
+                <b>Solutions:</b><br>
+                ◈ Try running locally: <code>streamlit run app.py</code><br>
+                ◈ Or check if HF Spaces has network restrictions<br>
+                ◈ yfinance sometimes needs a few minutes — try scanning again
+                </div>""", unsafe_allow_html=True)
+    rorder={"🎯 SNIPER":0,"⚡ STRONG":1,"✅ SETUP":2,"👀 WATCH":3,"⏳ WAIT":4,"🚫 AVOID":5}
+
+    filtered=[r for r in results
+              if r["score"]>=min_sc and r["confirmations"]>=min_cf
+              and r["rating"] in show_r
+              and (dir_f=="All"
+                   or (dir_f=="BUY only" and r["direction"]=="BUY")
+                   or (dir_f=="SELL only" and r["direction"]=="SELL"))]
+    filtered.sort(key=lambda x:(rorder.get(x["rating"],9),-x["score"]))
+
+    # Summary
+    st.markdown("### 📊 SCAN SUMMARY")
+    total=len(results)
+    sniper=len([r for r in results if r["rating"]=="🎯 SNIPER"])
+    strong=len([r for r in results if r["rating"]=="⚡ STRONG"])
+    setups=len([r for r in results if r["rating"] in ["🎯 SNIPER","⚡ STRONG","✅ SETUP"]])
+    buys=len([r for r in results if r["direction"]=="BUY"])
+    sells=len([r for r in results if r["direction"]=="SELL"])
+
+    c1,c2,c3,c4,c5,c6=st.columns(6)
+    mcard(c1,"SCANNED",total,"#5a7a9a")
+    mcard(c2,"🎯 SNIPER",sniper,"#ffd700")
+    mcard(c3,"⚡ STRONG",strong,"#00ff88")
+    mcard(c4,"📋 SETUPS",setups,"#00bfff")
+    mcard(c5,"🟢 BUY",buys,"#00ff88")
+    mcard(c6,"🔴 SELL",sells,"#ff3355")
+
+    st.markdown(f"### 🎯 {len(filtered)} PAIRS MATCH FILTERS")
+
+    if not filtered:
+        st.markdown("<div class='alert-box'>No pairs match current filters — try lowering thresholds.</div>",
+                    unsafe_allow_html=True)
+    else:
+        tab1,tab2,tab3,tab_cot=st.tabs(["🃏 SIGNAL CARDS","📋 TABLE","🏆 TOP SETUPS","📋 COT OVERVIEW"])
+
+        with tab1:
+            for r in filtered[:20]:
+                dc_=dc(r["direction"]); sc_=sc(r["score"])
+                dclass="buy" if r["direction"]=="BUY" else "sell" if r["direction"]=="SELL" else "neutral"
+                arrow="▲" if r["direction"]=="BUY" else "▼" if r["direction"]=="SELL" else "◆"
+                st.markdown(f"""<div class='signal-card {dclass}'>
+                <div style='display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px'>
+                    <div><span style='font-size:17px;font-weight:900;color:#e0f0ff;
+                        font-family:Share Tech Mono;letter-spacing:2px'>{r["symbol"]}</span>
+                    <span style='margin-left:8px;font-size:11px;color:#5a7a9a;
+                        font-family:Share Tech Mono'>{r["price"]:.5f}</span></div>
+                    <div style='text-align:right'>{badge(r["rating"])}
+                    <div style='color:{dc_};font-size:18px;font-weight:900'>{arrow} {r["direction"]}</div>
+                    </div></div>
+                <div style='display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px'>
+                    <span style='font-family:Share Tech Mono;font-size:11px;color:{sc_}'>SCORE:{r["score"]}</span>
+                    <span style='font-family:Share Tech Mono;font-size:11px;color:#00bfff'>CONF:{r["confirmations"]}</span>
+                    <span style='font-family:Share Tech Mono;font-size:11px;color:#ffd700'>H4:{r["bias"]}</span>
+                    <span style='font-family:Share Tech Mono;font-size:11px;color:#ff8c00'>ZONE:{r["premium_zone"]}</span>
+                    <span style='font-family:Share Tech Mono;font-size:11px;color:#7a9abf'>RSI:{r["rsi"]}</span>
+                    <span style='font-family:Share Tech Mono;font-size:11px;color:#7a9abf'>ADX:{r["adx"]}</span>
+                </div>
+                {sbar(r["score"],sc_)}
+                <div style='margin-top:6px'>""", unsafe_allow_html=True)
+                for s in r["signals"][:3]:
+                    st.markdown(f"<span class='conf-tag conf-pos'>◈ {s}</span>",unsafe_allow_html=True)
+                if r["direction"]!="NEUTRAL" and r["sl_pips"]>0:
+                    tc="#00ff88" if r["direction"]=="BUY" else "#ff3355"
+                    st.markdown(f"""<div style='margin-top:8px;padding:8px;background:#050a0e;
+                        border-radius:4px;font-family:Share Tech Mono;font-size:11px'>
+                        <span style='color:#5a7a9a'>ENTRY</span>
+                        <span style='color:#e0f0ff;margin:0 8px'>{r["price"]:.5f}</span>
+                        <span style='color:#ff3355'>SL {r["sl_price"]:.5f} ({r["sl_pips"]}p)</span>
+                        <span style='margin:0 6px;color:#1a3a5c'>|</span>
+                        <span style='color:#00ff88'>TP1 {r["tp1_price"]:.5f} ({r["tp1_pips"]}p)</span>
+                        <span style='margin:0 6px;color:#1a3a5c'>|</span>
+                        <span style='color:#00ff88'>TP2 {r["tp2_price"]:.5f}</span>
+                        <span style='margin-left:8px;color:#ffd700'>RR 1:{r["rr_ratio"]:.1f}</span>
+                    </div>""", unsafe_allow_html=True)
+                # AI Analysis button per card
+                if get_api_key():
+                    ai_key = f"ai_{r['symbol']}_{r['score']}_{r['direction']}_{r['price']:.3f}"
+                    if st.button(f"🤖 AI Analyze {r['symbol']}", key=f"scan_ai_{r['symbol']}", use_container_width=True):
+                        with st.spinner(f"🤖 Analyzing {r['symbol']}..."):
+                            prompt = build_ai_prompt(r)
+                            ai_text, err = call_groq_api(prompt, get_api_key())
+                            st.session_state[ai_key] = ai_text if ai_text else f"ERROR:{err}"
+                    if ai_key in st.session_state:
+                        ai_result = st.session_state[ai_key]
+                        if ai_result.startswith("ERROR:"):
+                            st.error(ai_result[6:])
+                        else:
+                            with st.expander("🤖 AI Analysis Result", expanded=True):
+                                st.markdown(ai_result)
+                st.markdown("</div></div><br>",unsafe_allow_html=True)
+
+        with tab2:
+            rows=[]
+            for r in filtered:
+                cot=r.get("cot",_cot_empty())
+                rows.append({
+                    "Pair":r["symbol"],"Price":f"{r['price']:.5f}",
+                    "Dir":r["direction"],"Score":r["score"],"Rating":r["rating"],
+                    "Conf":r["confirmations"],"H4":r["bias"],"Zone":r["premium_zone"],
+                    "RSI":r["rsi"],"ADX":r["adx"],
+                    "BOS":"✓" if r.get("bos") else "","CHoCH":"✓" if r.get("choch") else "",
+                    "COT Idx":f"{cot['cot_index']:.0f}" if cot["available"] else "N/A",
+                    "COT Sig":cot["signal"] if cot["available"] else "N/A",
+                    "SL p":r["sl_pips"],"TP1 p":r["tp1_pips"],"RR":f"1:{r['rr_ratio']:.1f}"
+                })
+            if rows:
+                st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True,
+                             height=min(600,40+len(rows)*35))
+
+        with tab3:
+            st.markdown("### 🏆 TOP 5 SETUPS")
+            top5=[r for r in filtered if r["rating"] in ["🎯 SNIPER","⚡ STRONG"]][:5]
+            if not top5: top5=filtered[:5]
+            medals=["🥇","🥈","🥉","4️⃣","5️⃣"]
+            for i,r in enumerate(top5):
+                dc_=dc(r["direction"]); sc_=sc(r["score"])
+                dclass="buy" if r["direction"]=="BUY" else "sell" if r["direction"]=="SELL" else "neutral"
+                st.markdown(f"""<div class='signal-card {dclass}'>
+                <div style='display:flex;justify-content:space-between'>
+                    <div><span style='font-size:16px'>{medals[i]}</span>
+                    <span style='font-size:22px;font-weight:900;color:#e0f0ff;
+                        font-family:Share Tech Mono;margin-left:8px'>{r["symbol"]}</span>
+                    <span style='font-size:20px;font-weight:900;color:{dc_};margin-left:12px'>
+                        {r["direction"]}</span></div>
+                    <div style='text-align:right'>
+                        <div style='font-size:30px;font-weight:900;color:{sc_};
+                            font-family:Share Tech Mono'>{r["score"]}</div>
+                        <div style='font-size:9px;color:#5a7a9a;letter-spacing:1px'>SNIPER SCORE</div>
+                    </div></div>
+                {sbar(r["score"],sc_)}
+                <div style='margin-top:10px;font-family:Share Tech Mono;font-size:11px;
+                    color:#7a9abf;line-height:1.8'>
+                    ◈ {r["price"]:.5f} &nbsp;|&nbsp; SL {r["sl_price"]:.5f} ({r["sl_pips"]}p)
+                    &nbsp;|&nbsp; TP1 {r["tp1_price"]:.5f} &nbsp;|&nbsp; TP2 {r["tp2_price"]:.5f}
+                    &nbsp;|&nbsp; <span style='color:#ffd700'>RR 1:{r["rr_ratio"]:.1f}</span>
+                </div><div style='margin-top:6px'>""", unsafe_allow_html=True)
+                for s in r["signals"][:4]:
+                    st.markdown(f"<span class='conf-tag conf-pos'>{s}</span>",unsafe_allow_html=True)
+                st.markdown("</div></div><br>",unsafe_allow_html=True)
+
+        with tab_cot:
+            st.markdown("### 📋 COT REPORT — INSTITUTIONAL POSITIONING OVERVIEW")
+            st.caption("CFTC Traders in Financial Futures | Updated every Friday | Source: CFTC.gov")
+            st.divider()
+
+            # Check if any COT data available
+            cot_available = any(r.get("cot",{}).get("available") for r in results)
+            if not cot_available:
+                st.markdown("""<div class='alert-box'>
+                <b style='color:#ffd700'>⚠️ COT data was not loaded</b><br>
+                CFTC may be unreachable or data may not be available yet.
+                COT is published every Friday ~3:30 PM EST.
+                The scanner still works with all other 5 layers.
+                </div>""", unsafe_allow_html=True)
+            else:
+                # Sort by COT index for most bullish/bearish
+                cot_results = [(r["symbol"], r.get("cot",_cot_empty()))
+                               for r in results if r.get("cot",{}).get("available")]
+                cot_bull = sorted([(s,c) for s,c in cot_results if c["signal"]=="BULLISH"],
+                                  key=lambda x:-x[1]["cot_index"])
+                cot_bear = sorted([(s,c) for s,c in cot_results if c["signal"]=="BEARISH"],
+                                  key=lambda x:x[1]["cot_index"])
+                cot_neut = [(s,c) for s,c in cot_results if c["signal"]=="NEUTRAL"]
+
+                col_l, col_r = st.columns(2)
+                with col_l:
+                    st.markdown(f"**🟢 INSTITUTIONALLY BULLISH ({len(cot_bull)})**")
+                    for sym, cot in cot_bull[:10]:
+                        ci=cot["cot_index"]
+                        bar_w=int(ci)
+                        st.markdown(f"""
+                        <div style='margin:6px 0'>
+                            <div style='display:flex;justify-content:space-between;
+                                font-family:Share Tech Mono;font-size:12px;margin-bottom:3px'>
+                                <span style='color:#e0f0ff'>{sym}</span>
+                                <span style='color:#00ff88'>Index:{ci:.0f} | Net:{cot["dealer_net"]:+,}</span>
+                            </div>
+                            <div style='background:#050a0e;border-radius:2px;height:4px'>
+                                <div style='width:{bar_w}%;height:100%;background:#00ff88;border-radius:2px'></div>
+                            </div>
+                        </div>""", unsafe_allow_html=True)
+
+                with col_r:
+                    st.markdown(f"**🔴 INSTITUTIONALLY BEARISH ({len(cot_bear)})**")
+                    for sym, cot in cot_bear[:10]:
+                        ci=cot["cot_index"]
+                        bar_w=int(100-ci)
+                        st.markdown(f"""
+                        <div style='margin:6px 0'>
+                            <div style='display:flex;justify-content:space-between;
+                                font-family:Share Tech Mono;font-size:12px;margin-bottom:3px'>
+                                <span style='color:#e0f0ff'>{sym}</span>
+                                <span style='color:#ff3355'>Index:{ci:.0f} | Net:{cot["dealer_net"]:+,}</span>
+                            </div>
+                            <div style='background:#050a0e;border-radius:2px;height:4px'>
+                                <div style='width:{bar_w}%;height:100%;background:#ff3355;border-radius:2px'></div>
+                            </div>
+                        </div>""", unsafe_allow_html=True)
+
+                # Extreme alerts
+                extremes = [(s,c) for s,c in cot_results if c["extreme"]]
+                if extremes:
+                    st.divider()
+                    st.markdown("**⚠️ EXTREME POSITIONING ALERTS — Potential Reversal Zones**")
+                    for sym, cot in extremes:
+                        ci = cot["cot_index"]
+                        if ci > 80:
+                            msg = f"🔴 {sym}: EXTREME LONG (Index:{ci:.0f}) — institutions max long, reversal risk"
+                            col = "#ff8c00"
+                        else:
+                            msg = f"🟢 {sym}: EXTREME SHORT (Index:{ci:.0f}) — institutions max short, bounce risk"
+                            col = "#00bfff"
+                        st.markdown(f"<div style='font-family:Share Tech Mono;font-size:12px;"
+                                    f"color:{col};padding:4px 0'>{msg}</div>", unsafe_allow_html=True)
+
+    # Market overview
+    st.divider()
+    st.markdown("### 🌐 MARKET OVERVIEW")
+    all_buy=sorted([r for r in results if r["direction"]=="BUY"],key=lambda x:-x["score"])
+    all_sell=sorted([r for r in results if r["direction"]=="SELL"],key=lambda x:-x["score"])
+    all_neut=[r for r in results if r["direction"]=="NEUTRAL"]
+
+    co1,co2,co3=st.columns(3)
+    with co1:
+        st.markdown(f"**🟢 BUY ({len(all_buy)})**")
+        for r in all_buy[:10]:
+            s_=sc(r["score"])
+            st.markdown(f"<div class='info-row'>"
+                        f"<span style='color:#e0f0ff;font-family:Share Tech Mono;font-size:12px'>{r['symbol']}</span>"
+                        f"<span style='color:{s_};font-family:Share Tech Mono;font-size:12px'>{r['score']} {r['rating'].split()[0]}</span></div>",
+                        unsafe_allow_html=True)
+    with co2:
+        st.markdown(f"**🔴 SELL ({len(all_sell)})**")
+        for r in all_sell[:10]:
+            s_=sc(r["score"])
+            st.markdown(f"<div class='info-row'>"
+                        f"<span style='color:#e0f0ff;font-family:Share Tech Mono;font-size:12px'>{r['symbol']}</span>"
+                        f"<span style='color:{s_};font-family:Share Tech Mono;font-size:12px'>{r['score']} {r['rating'].split()[0]}</span></div>",
+                        unsafe_allow_html=True)
+    with co3:
+        st.markdown(f"**⚪ NEUTRAL ({len(all_neut)})**")
+        for r in all_neut[:10]:
+            st.markdown(f"<div class='info-row'>"
+                        f"<span style='color:#5a7a9a;font-family:Share Tech Mono;font-size:12px'>{r['symbol']}</span>"
+                        f"<span style='color:#1a3a5c;font-family:Share Tech Mono;font-size:12px'>{r['score']}</span></div>",
+                        unsafe_allow_html=True)
+
+# Empty state
+elif not st.session_state.get("scan_results"):
+    st.markdown("""<div style='text-align:center;padding:60px 20px'>
+    <div style='font-size:64px;margin-bottom:20px'>🎯</div>
+    <div style='font-family:Share Tech Mono;font-size:22px;color:#5a7a9a;
+        letter-spacing:4px;margin-bottom:12px'>SCANNER READY</div>
+    <div style='font-family:Share Tech Mono;font-size:11px;color:#1a3a5c;
+        line-height:2.2;max-width:480px;margin:auto'>
+        ◈ LAYER 1 — H4 Market Structure (BOS / CHoCH)<br>
+        ◈ LAYER 2 — SMC Zones (Order Block / FVG / Liquidity)<br>
+        ◈ LAYER 3 — Classic Indicators (RSI / MACD / ADX / Stoch / BB)<br>
+        ◈ LAYER 4 — Session Filter (London / NY / Tokyo / Sydney)<br>
+        ◈ LAYER 5 — M5 Entry Trigger (Engulfing / Hammer / Pin Bar)
+    </div></div>""", unsafe_allow_html=True)
+
+# Footer
+st.divider()
+st.markdown("""<div style='text-align:center;font-family:Share Tech Mono;font-size:10px;
+color:#1a3a5c;letter-spacing:2px;padding:10px'>
+SNIPER FX v1.0 ◈ EDUCATIONAL PURPOSES ONLY ◈ NOT FINANCIAL ADVICE ◈
+ALWAYS USE PROPER RISK MANAGEMENT ◈ MAX 1-2% RISK PER TRADE
+</div>""", unsafe_allow_html=True)
+
+if "scan_results" not in st.session_state: st.session_state["scan_results"]=[]
+
+
+
+# ============================================================
+# app.py — AKSARA IDX v2.0 (ENHANCED EDITION)
+# Fitur: Scanner 956 Saham IDX · Bandarmologi · Foreign Flow Real
+#         Chart Pattern · AI Confidence (Groq) · Backtest v2
+#         Portfolio · Risk Manager · Wyckoff · Sector Momentum
+#         Relative Strength vs IHSG · RSI Wilder · MACD Fix
+# ============================================================
+import streamlit as st
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import pandas as pd
+import numpy as np
+import yfinance as yf
+import requests
+from bs4 import BeautifulSoup
+import time
+from datetime import datetime, time as dtime, timedelta
+import pytz
+import random
+import os
+import json
+
+# ============================================================
+# KONFIGURASI HALAMAN
+# ============================================================
+st.set_page_config(
+    page_title="⚡ AKSARA IDX v2.0",
+    page_icon="⚡",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# ============================================================
+# CSS — AKSARA IDX PREMIUM TERMINAL
+# ============================================================
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@700;800&family=Inter:wght@300;400;500;600&display=swap');
+
+:root {
+    --bg-base:       #070711;
+    --bg-surface:    #0d0d1a;
+    --bg-elevated:   #121220;
+    --bg-hover:      #161628;
+    --border:        #1e1e36;
+    --border-bright: #2a2a48;
+    --text-primary:  #e8eeff;
+    --text-secondary:#7a84a8;
+    --text-muted:    #3a3f5c;
+    --accent-cyan:   #00c8ff;
+    --accent-green:  #00e87a;
+    --accent-gold:   #f5c842;
+    --accent-red:    #ff3d5a;
+    --accent-purple: #9b6dff;
+    --glow-cyan:     0 0 20px rgba(0,200,255,0.15);
+    --glow-green:    0 0 20px rgba(0,232,122,0.15);
+    --radius-sm:     6px;
+    --radius-md:     10px;
+    --radius-lg:     16px;
 }
-for k, v in defaults.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
 
+html, body, [class*="css"] {
+    background: var(--bg-base) !important;
+    color: var(--text-primary) !important;
+    font-family: 'Inter', sans-serif !important;
+    font-size: 14px !important;
+}
+.stApp { background: var(--bg-base) !important; }
+.main .block-container { padding: 1.25rem 2rem !important; max-width: 100% !important; }
 
-# ════════════════════════════════════════════════════════════
+h1 {
+    font-family: 'Syne', sans-serif !important;
+    font-weight: 800 !important;
+    font-size: 2rem !important;
+    letter-spacing: 6px !important;
+    background: linear-gradient(120deg, #00c8ff 0%, #00e87a 50%, #f5c842 100%);
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    margin-bottom: 0 !important;
+    text-transform: uppercase;
+}
+h2 {
+    font-family: 'Syne', sans-serif !important;
+    font-size: 1.05rem !important;
+    font-weight: 700 !important;
+    color: var(--accent-cyan) !important;
+    letter-spacing: 3px !important;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border) !important;
+    padding-bottom: 8px !important;
+    margin-bottom: 16px !important;
+}
+h3 {
+    font-family: 'Syne', sans-serif !important;
+    font-size: 0.85rem !important;
+    font-weight: 700 !important;
+    color: var(--text-secondary) !important;
+    letter-spacing: 2px !important;
+    text-transform: uppercase;
+}
+
+[data-testid="stSidebar"] {
+    background: var(--bg-surface) !important;
+    border-right: 1px solid var(--border) !important;
+}
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] .stMarkdown p,
+[data-testid="stSidebar"] .stCaption {
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 0.72rem !important;
+    color: var(--text-secondary) !important;
+    letter-spacing: 0.5px;
+}
+
+.stTextInput input, .stNumberInput input, .stTextArea textarea {
+    background: var(--bg-elevated) !important;
+    border: 1px solid var(--border-bright) !important;
+    border-radius: var(--radius-sm) !important;
+    color: var(--text-primary) !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 0.8rem !important;
+}
+.stSelectbox > div > div {
+    background: var(--bg-elevated) !important;
+    border: 1px solid var(--border-bright) !important;
+    border-radius: var(--radius-sm) !important;
+    color: var(--text-primary) !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 0.8rem !important;
+}
+
+.stButton > button {
+    background: var(--bg-elevated) !important;
+    color: var(--accent-cyan) !important;
+    border: 1px solid var(--border-bright) !important;
+    border-radius: var(--radius-sm) !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 0.72rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 2px !important;
+    text-transform: uppercase !important;
+    padding: 0.5rem 1.25rem !important;
+    transition: all 0.2s ease !important;
+}
+.stButton > button:hover {
+    border-color: var(--accent-cyan) !important;
+    color: var(--bg-base) !important;
+    background: var(--accent-cyan) !important;
+    box-shadow: var(--glow-cyan) !important;
+}
+.stButton > button[kind="primary"] {
+    background: rgba(0,232,122,0.08) !important;
+    color: var(--accent-green) !important;
+    border: 1px solid rgba(0,232,122,0.4) !important;
+}
+.stButton > button[kind="primary"]:hover {
+    background: var(--accent-green) !important;
+    color: var(--bg-base) !important;
+    box-shadow: var(--glow-green) !important;
+}
+
+.stTabs [data-baseweb="tab-list"] {
+    background: transparent !important;
+    border-bottom: 1px solid var(--border) !important;
+    gap: 0 !important;
+}
+.stTabs [data-baseweb="tab"] {
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 0.68rem !important;
+    font-weight: 500 !important;
+    color: var(--text-muted) !important;
+    letter-spacing: 1.5px !important;
+    text-transform: uppercase !important;
+    padding: 10px 16px !important;
+    border-bottom: 2px solid transparent !important;
+    transition: all 0.2s ease !important;
+    background: transparent !important;
+}
+.stTabs [data-baseweb="tab"]:hover { color: var(--text-secondary) !important; }
+.stTabs [aria-selected="true"] {
+    color: var(--accent-cyan) !important;
+    border-bottom: 2px solid var(--accent-cyan) !important;
+    background: transparent !important;
+}
+
+div[data-testid="stExpander"] {
+    background: var(--bg-surface) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-md) !important;
+    overflow: hidden !important;
+}
+div[data-testid="stExpander"] summary {
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 0.75rem !important;
+    color: var(--text-secondary) !important;
+    background: var(--bg-elevated) !important;
+}
+
+div[data-testid="stProgress"] > div > div {
+    background: linear-gradient(90deg, var(--accent-cyan), var(--accent-green)) !important;
+}
+div[data-testid="stProgress"] > div {
+    background: var(--bg-elevated) !important;
+    border-radius: 4px !important;
+}
+
+.stDataFrame { border: 1px solid var(--border) !important; border-radius: var(--radius-md) !important; overflow: hidden !important; }
+[data-testid="stDataFrame"] table { font-family: 'JetBrains Mono', monospace !important; font-size: 0.74rem !important; }
+[data-testid="stDataFrame"] th {
+    background: var(--bg-elevated) !important;
+    color: var(--text-secondary) !important;
+    font-size: 0.65rem !important;
+    letter-spacing: 1px !important;
+    text-transform: uppercase !important;
+    border-bottom: 1px solid var(--border-bright) !important;
+}
+[data-testid="stDataFrame"] td { color: var(--text-primary) !important; border-bottom: 1px solid var(--border) !important; }
+
+[data-testid="stMetric"] {
+    background: var(--bg-surface) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-md) !important;
+    padding: 12px 16px !important;
+}
+[data-testid="stMetricLabel"] {
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 0.62rem !important;
+    color: var(--text-muted) !important;
+    letter-spacing: 1.5px !important;
+    text-transform: uppercase !important;
+}
+[data-testid="stMetricValue"] {
+    font-family: 'Syne', sans-serif !important;
+    font-size: 1.3rem !important;
+    font-weight: 700 !important;
+}
+
+.stSuccess { background: rgba(0,232,122,0.07) !important; border: 1px solid rgba(0,232,122,0.25) !important; border-radius: var(--radius-md) !important; font-family: 'JetBrains Mono', monospace !important; font-size: 0.78rem !important; }
+.stWarning { background: rgba(245,200,66,0.07) !important; border: 1px solid rgba(245,200,66,0.25) !important; border-radius: var(--radius-md) !important; font-family: 'JetBrains Mono', monospace !important; font-size: 0.78rem !important; }
+.stError   { background: rgba(255,61,90,0.07)  !important; border: 1px solid rgba(255,61,90,0.25)  !important; border-radius: var(--radius-md) !important; font-family: 'JetBrains Mono', monospace !important; font-size: 0.78rem !important; }
+.stInfo    { background: rgba(0,200,255,0.07)  !important; border: 1px solid rgba(0,200,255,0.25)  !important; border-radius: var(--radius-md) !important; font-family: 'JetBrains Mono', monospace !important; font-size: 0.78rem !important; }
+
+hr { border-color: var(--border) !important; margin: 16px 0 !important; }
+.stCaption, small { font-family: 'JetBrains Mono', monospace !important; font-size: 0.65rem !important; color: var(--text-muted) !important; }
+.stRadio label, .stCheckbox label { font-family: 'JetBrains Mono', monospace !important; font-size: 0.74rem !important; color: var(--text-secondary) !important; }
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--bg-base); }
+::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent-cyan); }
+
+.metric-box {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    text-align: center;
+    margin: 3px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+.metric-box::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(0,200,255,0.5), transparent);
+}
+.metric-box:hover { border-color: var(--border-bright); box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
+.metric-val { font-family: 'Syne', sans-serif; font-size: 1.45rem; font-weight: 800; line-height: 1.2; }
+.metric-label { font-family: 'JetBrains Mono', monospace; font-size: 0.58rem; color: var(--text-muted); letter-spacing: 2px; text-transform: uppercase; margin-top: 4px; }
+
+.signal-tag {
+    display: inline-block;
+    background: rgba(0,232,122,0.07);
+    border: 1px solid rgba(0,232,122,0.2);
+    color: var(--accent-green);
+    border-radius: 4px;
+    padding: 3px 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.67rem;
+    margin: 2px;
+    letter-spacing: 0.5px;
+}
+
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.74rem;
+}
+.info-row:last-child { border-bottom: none; }
+
+.trade-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+.trade-cell { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; }
+.trade-cell-label { font-family: 'JetBrains Mono', monospace; font-size: 0.58rem; color: var(--text-muted); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 4px; }
+.trade-cell-val { font-family: 'Syne', sans-serif; font-size: 1.1rem; font-weight: 700; }
+.trade-cell-sub { font-family: 'JetBrains Mono', monospace; font-size: 0.67rem; margin-top: 2px; }
+
+.fase-card {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 16px; border-radius: var(--radius-md); margin-bottom: 16px; border-left: 3px solid;
+}
+.fase-icon { font-size: 1.5rem; }
+.fase-text { font-family: 'Syne', sans-serif; font-size: 1rem; font-weight: 700; letter-spacing: 1px; }
+
+.quote-card {
+    background: linear-gradient(135deg, rgba(245,200,66,0.04), rgba(0,200,255,0.03));
+    border: 1px solid rgba(245,200,66,0.12);
+    border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 10px; text-align: center;
+}
+.quote-line1 { font-family: 'Syne', sans-serif; font-size: 0.88rem; font-weight: 700; color: var(--accent-gold); }
+.quote-line2 { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: rgba(245,200,66,0.55); margin-top: 3px; font-style: italic; }
+
+.sb-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 10px; text-align: center; }
+.sb-card-title { font-family: 'JetBrains Mono', monospace; font-size: 0.58rem; color: var(--text-muted); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 6px; }
+
+.empty-state { text-align: center; padding: 80px 20px; }
+.empty-state .icon { font-size: 3.5rem; margin-bottom: 16px; }
+.empty-state .title { font-family: 'Syne', sans-serif; font-size: 1.15rem; font-weight: 800; color: var(--text-secondary); letter-spacing: 4px; text-transform: uppercase; margin-bottom: 8px; }
+.empty-state .sub { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; color: var(--text-muted); letter-spacing: 1px; line-height: 1.9; max-width: 580px; margin: 0 auto; }
+
+.ai-output {
+    background: linear-gradient(180deg, var(--bg-elevated), var(--bg-surface));
+    border: 1px solid var(--border-bright); border-radius: var(--radius-lg);
+    padding: 24px; color: #c8d4f0; font-size: 0.85rem; line-height: 1.9; margin-top: 16px;
+}
+
+.verdict-banner {
+    border-radius: var(--radius-md); padding: 14px 18px; text-align: center;
+    font-family: 'Syne', sans-serif; font-size: 0.88rem; font-weight: 700;
+    letter-spacing: 2px; text-transform: uppercase; margin-top: 10px;
+}
+
+.section-card { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; }
+.section-title { font-family: 'JetBrains Mono', monospace; font-size: 0.6rem; font-weight: 700; color: var(--text-muted); letter-spacing: 3px; text-transform: uppercase; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+
+.badge-new {
+    background: linear-gradient(90deg, #00c8ff22, #00e87a22);
+    border: 1px solid #00c8ff44;
+    color: #00c8ff;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.55rem;
+    padding: 2px 7px;
+    border-radius: 20px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    vertical-align: middle;
+    margin-left: 6px;
+}
+
+.rs-bar {
+    height: 6px;
+    border-radius: 3px;
+    margin-top: 4px;
+}
+
+.sector-heatmap-cell {
+    border-radius: 8px;
+    padding: 12px;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 700;
+    margin: 2px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ============================================================
+# DATA SAHAM IDX (956 SAHAM)
+# ============================================================
+ALL_TICKERS = [
+    "AALI","ABBA","ABDA","ABMM","ACES","ACST","ADES","ADHI","AISA","AKKU",
+    "AKPI","AKRA","AKSI","ALDO","ALKA","ALMI","ALTO","AMAG","AMFG","AMIN",
+    "AMRT","ANJT","ANTM","APEX","APIC","APII","APLI","APLN","ARGO","ARII",
+    "ARNA","ARTA","ARTI","ARTO","ASBI","ASDM","ASGR","ASII","ASJT","ASMI",
+    "ASRI","ASRM","ASSA","ATIC","AUTO","BABP","BACA","BAJA","BALI","BAPA",
+    "BATA","BAYU","BBCA","BBHI","BBKP","BBLD","BBMD","BBNI","BBRI","BBRM",
+    "BBTN","BBYB","BCAP","BCIC","BCIP","BDMN","BEKS","BEST","BFIN","BGTG",
+    "BHIT","BIKA","BIMA","BINA","BIPI","BIPP","BIRD","BISI","BJBR","BJTM",
+    "BKDP","BKSL","BKSW","BLTA","BLTZ","BMAS","BMRI","BMSR","BMTR","BNBA",
+    "BNBR","BNGA","BNII","BNLI","BOLT","BPFI","BPII","BRAM","BRMS","BRNA",
+    "BRPT","BSDE","BSIM","BSSR","BSWD","BTEK","BTEL","BTON","BTPN","BUDI",
+    "BUKK","BULL","BUMI","BUVA","BVIC","BWPT","BYAN","CANI","CASS","CEKA",
+    "CENT","CFIN","CINT","CITA","CLPI","CMNP","CMPP","CNKO","CNTX","COWL",
+    "CPIN","CPRO","CSAP","CTBN","CTRA","CTTH","DART","DEFI","DEWA","DGIK",
+    "DILD","DKFT","DLTA","DMAS","DNAR","DNET","DOID","DPNS","DSFI","DSNG",
+    "DSSA","DUTI","DVLA","DYAN","ECII","EKAD","ELSA","ELTY","EMDE","EMTK",
+    "ENRG","EPMT","ERAA","ERTX","ESSA","ESTI","ETWA","EXCL","FAST","FASW",
+    "FISH","FMII","FORU","FPNI","GAMA","GDST","GDYR","GEMA","GEMS","GGRM",
+    "GIAA","GJTL","GLOB","GMTD","GOLD","GOLL","GPRA","GSMF","GTBO","GWSA",
+    "GZCO","HADE","HDFA","HERO","HEXA","HITS","HMSP","HOME","HOTL","HRUM",
+    "IATA","IBFN","IBST","ICBP","ICON","IGAR","IIKP","IKAI","IKBI","IMAS",
+    "IMJS","IMPC","INAF","INAI","INCI","INCO","INDF","INDR","INDS","INDX",
+    "INDY","INKP","INPC","INPP","INRU","INTA","INTD","INTP","IPOL","ISAT",
+    "ISSP","ITMA","ITMG","JAWA","JECC","JIHD","JKON","JPFA","JRPT","JSMR",
+    "JSPT","JTPE","KAEF","KARW","KBLI","KBLM","KBLV","KBRI","KDSI","KIAS",
+    "KICI","KIJA","KKGI","KLBF","KOBX","KOIN","KONI","KOPI","KPIG","KRAS",
+    "KREN","LAPD","LCGP","LEAD","LINK","LION","LMAS","LMPI","LMSH","LPCK",
+    "LPGI","LPIN","LPKR","LPLI","LPPF","LPPS","LRNA","LSIP","LTLS","MAGP",
+    "MAIN","MAPI","MAYA","MBAP","MBSS","MBTO","MCOR","MDIA","MDKA","MDLN",
+    "MDRN","MEDC","MEGA","MERK","META","MFMI","MGNA","MICE","MIDI","MIKA",
+    "MIRA","MITI","MKPI","MLBI","MLIA","MLPL","MLPT","MMLP","MNCN","MPMX",
+    "MPPA","MRAT","MREI","MSKY","MTDL","MTFN","MTLA","MTSM","MYOH","MYOR",
+    "MYTX","NELY","NIKL","NIRO","NISP","NOBU","NRCA","OCAP","OKAS","OMRE",
+    "PADI","PALM","PANR","PANS","PBRX","PDES","PEGE","PGAS","PGLI","PICO",
+    "PJAA","PKPK","PLAS","PLIN","PNBN","PNBS","PNIN","PNLF","PSAB","PSDN",
+    "PSKT","PTBA","PTIS","PTPP","PTRO","PTSN","PTSP","PUDP","PWON","PYFA",
+    "RAJA","RALS","RANC","RBMS","RDTX","RELI","RICY","RIGS","RIMO","RODA",
+    "ROTI","RUIS","SAFE","SAME","SCCO","SCMA","SCPI","SDMU","SDPC","SDRA",
+    "SGRO","SHID","SIDO","SILO","SIMA","SIMP","SIPD","SKBM","SKLT","SKYB",
+    "SMAR","SMBR","SMCB","SMDM","SMDR","SMGR","SMMA","SMMT","SMRA","SMRU",
+    "SMSM","SOCI","SONA","SPMA","SQMI","SRAJ","SRIL","SRSN","SRTG","SSIA",
+    "SSMS","SSTM","STAR","STTP","SUGI","SULI","SUPR","TALF","TARA","TAXI",
+    "TBIG","TBLA","TBMS","TCID","TELE","TFCO","TGKA","TIFA","TINS","TIRA",
+    "TIRT","TKIM","TLKM","TMAS","TMPO","TOBA","TOTL","TOTO","TOWR","TPIA",
+    "TPMA","TRAM","TRIL","TRIM","TRIO","TRIS","TRST","TRUS","TSPC","ULTJ",
+    "UNIC","UNIT","UNSP","UNTR","UNVR","VICO","VINS","VIVA","VOKS","VRNA",
+    "WAPO","WEHA","WICO","WIIM","WIKA","WINS","WOMF","WSKT","WTON","YPAS",
+    "YULE","ZBRA","SHIP","CASA","DAYA","DPUM","IDPR","JGLE","KINO","MARI",
+    "MKNT","MTRA","OASA","POWR","INCF","WSBP","PBSA","PRDA","BOGA","BRIS",
+    "PORT","CARS","MINA","CLEO","TAMU","CSIS","TGRA","FIRE","TOPS","KMTR",
+    "ARMY","MAPB","WOOD","HRTA","MABA","HOKI","MPOW","MARK","NASA","MDKI",
+    "BELL","KIOS","GMFI","MTWI","ZINC","MCAS","PPRE","WEGE","PSSI","MORA",
+    "DWGL","PBID","JMAS","CAMP","IPCM","PCAR","LCKM","BOSS","HELI","JSKY",
+    "INPS","GHON","TDPM","DFAM","NICK","BTPS","SPTO","PRIM","HEAL","TRUK",
+    "PZZA","TUGU","MSIN","SWAT","TNCA","MAPA","TCPI","IPCC","RISE","BPTR",
+    "POLL","NFCX","MGRO","NUSA","FILM","ANDI","LAND","MOLI","PANI","DIGI",
+    "CITY","SAPX","SURE","HKMU","MPRO","DUCK","GOOD","SKRN","YELO","CAKK",
+    "SATU","SOSS","DEAL","POLA","DIVA","LUCK","URBN","SOTS","ZONE","PEHA",
+    "FOOD","BEEF","POLI","CLAY","NATO","JAYA","COCO","MTPS","CPRI","HRME",
+    "POSA","JAST","FITT","BOLA","CCSI","SFAN","POLU","KJEN","KAYU","ITIC",
+    "PAMG","IPTV","BLUE","ENVY","EAST","LIFE","FUJI","KOTA","INOV","ARKA",
+    "SMKL","HDIT","KEEN","BAPI","TFAS","GGRP","OPMS","NZIA","SLIS","PURE",
+    "IRRA","DMMX","SINI","WOWS","ESIP","TEBE","KEJU","PSGO","AGAR","IFSH",
+    "REAL","IFII","PMJS","UCID","GLVA","PGJO","AMAR","CSRA","INDO","AMOR",
+    "TRIN","DMND","PURA","PTPW","TAMA","IKAN","SAMF","SBAT","KBAG","CBMF",
+    "RONY","CSMI","BBSS","BHAT","CASH","TECH","EPAC","UANG","PGUN","SOFA",
+    "PPGL","TOYS","SGER","TRJA","PNGO","SCNP","BBSI","KMDS","PURI","SOHO",
+    "HOMI","ROCK","ENZO","PLAN","PTDU","ATAP","VICI","PMMP","BANK","WMUU",
+    "EDGE","UNIQ","BEBS","SNLK","ZYRX","LFLO","FIMP","TAPG","NPGF","LUCY",
+    "ADCP","HOPE","MGLV","TRUE","LABA","ARCI","IPAC","MASB","BMHS","FLMC",
+    "NICL","UVCR","BUKA","HAIS","OILS","GPSO","MCOL","RSGK","RUNS","SBMA",
+    "CMNT","GTSI","IDEA","KUAS","BOBA","MTEL","DEPO","BINO","CMRY","WGSH",
+    "TAYS","WMPP","RMKE","OBMD","AVIA","IPPE","NASI","BSML","DRMA","ADMR",
+    "SEMA","ASLC","NETV","BAUT","ENAK","NTBK","SMKM","STAA","NANO","BIKE",
+    "WIRG","SICO","GOTO","TLDN","MTMH","WINR","IBOS","OLIV","ASHA","SWID",
+    "TRGU","ARKO","CHEM","DEWI","AXIO","KRYA","HATM","RCCC","GULA","JARR",
+    "AMMS","RAFI","KKES","ELPI","EURO","KLIN","TOOL","BUAH","CRAB","MEDS",
+    "COAL","PRAY","CBUT","BELI","MKTR","OMED","BSBK","PDPP","KDTN","ZATA",
+    "NINE","MMIX","PADA","ISAP","VTNY","SOUL","ELIT","BEER","CBPE","SUNI",
+    "CBRE","WINE","BMBL","PEVE","LAJU","FWCT","NAYZ","IRSX","PACK","VAST",
+    "CHIP","HALO","KING","PGEO","FUTR","HILL","BDKR","PTMP","SAGE","TRON",
+    "CUAN","NSSS","GTRA","HAJJ","JATI","TYRE","MPXL","SMIL","KLAS","MAXI",
+    "VKTR","RELF","AMMN","CRSN","GRPM","WIDI","TGUK","INET","MAHA","RMKO",
+    "CNMA","FOLK","HBAT","GRIA","PPRI","ERAL","CYBR","MUTU","LMAX","HUMI",
+    "MSIE","RSCH","BABY","AEGS","IOTF","KOCI","PTPS","BREN","STRK","KOKA",
+    "LOPI","UDNG","RGAS","MSTI","IKPM","AYAM","SURI","ASLI","GRPH","SMGA",
+    "UNTD","TOSK","MPIX","ALII","MKAP","MEJA","LIVE","HYGN","BAIK","VISI",
+    "AREA","MHKI","ATLA","DATA","SOLA","BATR","SPRE","PART","GOLF","ISEA",
+    "BLES","GUNA","LABS","DOSS","NEST","PTMR","VERN","DAAZ","BOAT","NAIK",
+    "AADI","MDIY","KSIX","RATU","YOII","HGII","BRRC","DGWG","CBDK","OBAT",
+    "MINE","ASPR","PSAT","COIN","CDIA","BLOG","MERI","CHEK","PMUI","EMAS",
+    "PJHB","RLCO","SUPA","KAQI","YUPI","FORE","MDLA","DKHH","AYLS","DADA",
+    "ASPI","ESTA","BESS","AMAN","CARE","PIPA","NCKL","MENN","AWAN","MBMA",
+    "RAAM","DOOH","CGAS","NICE","MSJA","SMLE","ACRO","MANG","WIFI","FAPA",
+    "DCII","KETR","DGNS","UFOE","ADMF","ADMG","ADRO","AGII","AGRO","AGRS",
+    "AHAP","AIMS","PNSE","POLY","POOL","PPRO",
+]
+
+# ============================================================
+# SECTOR MAPPING
+# ============================================================
+SECTOR_MAP = {
+    "BBCA":"Banking","BBRI":"Banking","BMRI":"Banking","BBNI":"Banking","BBTN":"Banking",
+    "BJTM":"Banking","BJBR":"Banking","BDMN":"Banking","NISP":"Banking","PNBN":"Banking",
+    "BNGA":"Banking","BTPN":"Banking","MAYA":"Banking","BNLI":"Banking","AGRO":"Banking",
+    "MEGA":"Banking","BRIS":"Banking","BTPS":"Banking","BBYB":"Banking","NOBU":"Banking",
+    "TLKM":"Telecom","EXCL":"Telecom","ISAT":"Telecom","TBIG":"Telecom","TOWR":"Telecom",
+    "LINK":"Telecom","SUPR":"Telecom","MTEL":"Telecom","WIFI":"Telecom",
+    "ANTM":"Mining","PTBA":"Mining","ADRO":"Mining","ITMG":"Mining","INCO":"Mining",
+    "MDKA":"Mining","BUMI":"Mining","BSSR":"Mining","GEMS":"Mining","HRUM":"Mining",
+    "KKGI":"Mining","MYOH":"Mining","TOBA":"Mining","BYAN":"Mining","INDY":"Mining",
+    "ZINC":"Mining","COAL":"Mining","MBAP":"Mining","PTRO":"Mining","TINS":"Mining",
+    "NICL":"Mining","NCKL":"Mining","AMMN":"Mining","MBMA":"Mining","PGEO":"Mining",
+    "CUAN":"Mining","BREN":"Mining",
+    "ASII":"Automotive","UNTR":"Automotive","AUTO":"Automotive","IMAS":"Automotive",
+    "GJTL":"Automotive","SMSM":"Automotive","BOLT":"Automotive","BRAM":"Automotive",
+    "UNVR":"Consumer","ICBP":"Consumer","KLBF":"Consumer","HMSP":"Consumer","GGRM":"Consumer",
+    "INDF":"Consumer","SIDO":"Consumer","MYOR":"Consumer","ROTI":"Consumer","ULTJ":"Consumer",
+    "DLTA":"Consumer","MLBI":"Consumer","CPIN":"Consumer","JPFA":"Consumer","GOOD":"Consumer",
+    "KEJU":"Consumer","TSPC":"Consumer","WIIM":"Consumer","CLEO":"Consumer","HOKI":"Consumer",
+    "STTP":"Consumer","DVLA":"Consumer","KAEF":"Consumer","MERK":"Consumer","FOOD":"Consumer",
+    "BEEF":"Consumer","COCO":"Consumer","DMND":"Consumer","CAMP":"Consumer","FAST":"Consumer",
+    "BSDE":"Property","PWON":"Property","CTRA":"Property","SMRA":"Property","ASRI":"Property",
+    "BEST":"Property","DILD":"Property","JRPT":"Property","KIJA":"Property","LPKR":"Property",
+    "MKPI":"Property","MTLA":"Property","RDTX":"Property","DART":"Property","BKSL":"Property",
+    "EMDE":"Property","GPRA":"Property","PPRO":"Property","DMAS":"Property","CITY":"Property",
+    "JSMR":"Infrastructure","WIKA":"Infrastructure","WSKT":"Infrastructure","PTPP":"Infrastructure",
+    "ADHI":"Infrastructure","NRCA":"Infrastructure","TOTL":"Infrastructure","WTON":"Infrastructure",
+    "ACST":"Infrastructure","POWR":"Infrastructure","WSBP":"Infrastructure","WEGE":"Infrastructure",
+    "PGAS":"Energy","MEDC":"Energy","BRPT":"Energy","TPIA":"Energy","ELSA":"Energy",
+    "ENRG":"Energy","ESSA":"Energy","FIRE":"Energy",
+    "AALI":"Agriculture","LSIP":"Agriculture","SGRO":"Agriculture","SSMS":"Agriculture",
+    "BWPT":"Agriculture","DSNG":"Agriculture","PALM":"Agriculture","SIMP":"Agriculture",
+    "ACES":"Retail","MAPI":"Retail","ERAA":"Retail","LPPF":"Retail","RALS":"Retail","KINO":"Retail",
+    "MNCN":"Media","SCMA":"Media","EMTK":"Media",
+    "GIAA":"Transport","BIRD":"Transport","ASSA":"Transport","SHIP":"Transport",
+    "TMAS":"Transport","SMDR":"Shipping","MBSS":"Shipping","PORT":"Transport",
+    "INTP":"Manufacturing","SMGR":"Manufacturing","AMFG":"Manufacturing","ARNA":"Manufacturing",
+    "AKPI":"Manufacturing","INKP":"Manufacturing","TKIM":"Manufacturing","ISSP":"Manufacturing",
+    "KBLI":"Manufacturing","SCCO":"Manufacturing","WOOD":"Manufacturing","SRIL":"Manufacturing",
+    "GOTO":"Technology","BUKA":"Technology","DCII":"Technology","MTDL":"Technology","CHIP":"Technology",
+}
+
+# Representatif per sektor untuk hitung Sector Momentum
+SECTOR_REPRESENTATIVES = {
+    "Banking":        ["BBCA","BBRI","BMRI","BBNI","BBTN"],
+    "Telecom":        ["TLKM","EXCL","ISAT","TBIG","TOWR"],
+    "Mining":         ["ANTM","PTBA","ADRO","ITMG","MDKA"],
+    "Automotive":     ["ASII","UNTR","AUTO"],
+    "Consumer":       ["UNVR","ICBP","KLBF","INDF","MYOR"],
+    "Property":       ["BSDE","PWON","CTRA","SMRA"],
+    "Infrastructure": ["JSMR","WIKA","WSKT","PTPP"],
+    "Energy":         ["PGAS","MEDC","BRPT","TPIA"],
+    "Agriculture":    ["AALI","LSIP","SGRO"],
+    "Retail":         ["ACES","MAPI","ERAA"],
+    "Media":          ["MNCN","SCMA","EMTK"],
+    "Technology":     ["GOTO","BUKA","DCII"],
+    "Manufacturing":  ["INTP","SMGR","INKP","TKIM"],
+}
+
+def get_sector(ticker):
+    return SECTOR_MAP.get(ticker, "Other")
+
+# ============================================================
+# MARKET STATUS
+# ============================================================
+def get_market_status():
+    wib = pytz.timezone("Asia/Jakarta")
+    now = datetime.now(wib)
+    wd = now.weekday()
+    t = now.time()
+    open_t = dtime(9, 0)
+    close_t = dtime(15, 30)
+    pre_t = dtime(8, 45)
+
+    if wd >= 5:
+        return {"status_text": "🔴 MARKET TUTUP", "status_color": "#ff4444",
+                "info_text": "Buka Senin 09:00 WIB", "is_open": False,
+                "time_str": now.strftime("%H:%M:%S"), "date_str": now.strftime("%d %b %Y"),
+                "day_name": now.strftime("%A")}
+    elif t < pre_t:
+        return {"status_text": "⏳ PRE-MARKET", "status_color": "#ffd700",
+                "info_text": "Buka pukul 09:00 WIB", "is_open": False,
+                "time_str": now.strftime("%H:%M:%S"), "date_str": now.strftime("%d %b %Y"),
+                "day_name": now.strftime("%A")}
+    elif pre_t <= t < open_t:
+        return {"status_text": "🟡 PRE-OPENING", "status_color": "#ffd700",
+                "info_text": "Sesi pra-buka", "is_open": False,
+                "time_str": now.strftime("%H:%M:%S"), "date_str": now.strftime("%d %b %Y"),
+                "day_name": now.strftime("%A")}
+    elif open_t <= t <= close_t:
+        return {"status_text": "🟢 MARKET BUKA", "status_color": "#00ff88",
+                "info_text": "Sesi reguler aktif", "is_open": True,
+                "time_str": now.strftime("%H:%M:%S"), "date_str": now.strftime("%d %b %Y"),
+                "day_name": now.strftime("%A")}
+    else:
+        return {"status_text": "🔴 MARKET TUTUP", "status_color": "#ff4444",
+                "info_text": "Buka besok 09:00 WIB", "is_open": False,
+                "time_str": now.strftime("%H:%M:%S"), "date_str": now.strftime("%d %b %Y"),
+                "day_name": now.strftime("%A")}
+
+# ============================================================
+# ✅ FIX: RSI dengan WILDER'S SMOOTHING METHOD (lebih akurat)
+# ============================================================
+def calc_rsi_wilder(prices, period=14):
+    """
+    RSI menggunakan Wilder's Smoothing (Exponential Moving Average).
+    Ini adalah metode standar yang digunakan TradingView, MetaTrader, dll.
+    """
+    if len(prices) < period + 1:
+        return 50.0
+    prices = np.array(prices, dtype=float)
+    deltas = np.diff(prices)
+    gains  = np.where(deltas > 0, deltas, 0.0)
+    losses = np.where(deltas < 0, -deltas, 0.0)
+
+    # Hitung average gain/loss awal (simple average untuk 'period' periode pertama)
+    avg_gain = np.mean(gains[:period])
+    avg_loss = np.mean(losses[:period])
+
+    # Wilder's Smoothing: EMA dengan alpha = 1/period
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return round(100 - (100 / (1 + rs)), 1)
+
+# ============================================================
+# ✅ FIX: MACD dengan EMA dari full series (lebih akurat)
+# ============================================================
+def calc_ema_series(prices, period):
+    """Hitung EMA dari seluruh series — BUKAN hanya window terakhir."""
+    prices = np.array(prices, dtype=float)
+    if len(prices) < period:
+        return np.array([np.mean(prices)] * len(prices))
+    k = 2.0 / (period + 1)
+    ema = np.zeros(len(prices))
+    # Seed dengan SMA dari 'period' bar pertama
+    ema[period - 1] = np.mean(prices[:period])
+    for i in range(period, len(prices)):
+        ema[i] = prices[i] * k + ema[i - 1] * (1 - k)
+    # Isi sebelum period dengan NaN untuk kejelasan, tapi return nilai valid
+    ema[:period - 1] = ema[period - 1]
+    return ema
+
+def calc_macd_full(prices):
+    """
+    MACD menggunakan EMA dari full series.
+    Return: (macd_value, signal_value, histogram_value)
+    """
+    if len(prices) < 26:
+        return 0.0, 0.0, 0.0
+    prices = np.array(prices, dtype=float)
+    ema12 = calc_ema_series(prices, 12)
+    ema26 = calc_ema_series(prices, 26)
+    macd_line = ema12 - ema26
+    # Signal line = EMA9 dari MACD line
+    signal_line = calc_ema_series(macd_line, 9)
+    histogram = macd_line - signal_line
+    return round(float(macd_line[-1]), 4), round(float(signal_line[-1]), 4), round(float(histogram[-1]), 4)
+
+def calc_bb(prices, period=20):
+    if len(prices) < period:
+        return 50.0, 0.0, 0.0
+    sl = np.array(prices[-period:])
+    m, s = np.mean(sl), np.std(sl)
+    u, l = m + 2 * s, m - 2 * s
+    pos = (prices[-1] - l) / (u - l) * 100 if (u - l) > 0 else 50
+    return round(max(0, min(100, pos)), 1), round(u, 0), round(l, 0)
+
+def calc_stoch(prices, highs, lows, period=14):
+    if len(prices) < 3:
+        return 50.0, 50.0
+    period = min(period, len(prices))
+    try:
+        hh = max(highs[-period:]) if highs[-period:] else prices[-1]
+        ll = min(lows[-period:]) if lows[-period:] else prices[-1]
+        if hh == ll:
+            return 50.0, 50.0
+        k = round((prices[-1] - ll) / (hh - ll) * 100, 1)
+        kv = []
+        for i in range(min(3, len(prices))):
+            idx = -(i + 1)
+            p2 = min(period, len(prices) + idx)
+            if p2 < 1:
+                continue
+            hs = [x for x in highs[max(0, len(highs) + idx - p2):len(highs) + idx] if x]
+            ls = [x for x in lows[max(0, len(lows) + idx - p2):len(lows) + idx] if x]
+            if not hs or not ls:
+                continue
+            hi, li = max(hs), min(ls)
+            kv.append(50.0 if hi == li else (prices[idx] - li) / (hi - li) * 100)
+        d = float(sum(kv) / len(kv)) if kv else k
+        return k, round(d, 1)
+    except:
+        return 50.0, 50.0
+
+def calc_adx(highs, lows, closes, period=14):
+    try:
+        if len(closes) < period + 1:
+            return 20.0
+        tr, pdm, ndm = [], [], []
+        for i in range(1, len(closes)):
+            h, l, pc = highs[i], lows[i], closes[i - 1]
+            tr.append(max(h - l, abs(h - pc), abs(l - pc)))
+            up_move = h - highs[i - 1]
+            down_move = lows[i - 1] - l
+            pdm.append(up_move if up_move > down_move and up_move > 0 else 0)
+            ndm.append(down_move if down_move > up_move and down_move > 0 else 0)
+        if len(tr) < period:
+            return 20.0
+        trs = np.convolve(tr, np.ones(period) / period, mode='valid')
+        ps  = np.convolve(pdm, np.ones(period) / period, mode='valid')
+        ns  = np.convolve(ndm, np.ones(period) / period, mode='valid')
+        if len(trs) == 0:
+            return 20.0
+        pdi = ps / (trs + 0.001) * 100
+        ndi = ns / (trs + 0.001) * 100
+        dx  = np.abs(pdi - ndi) / (pdi + ndi + 0.001) * 100
+        return round(float(np.mean(dx[-period:])), 1)
+    except:
+        return 20.0
+
+def get_sr(highs, lows, closes, n=20):
+    try:
+        ls = [x for x in lows[-n:]  if x > 0]
+        hs = [x for x in highs[-n:] if x > 0]
+        if not ls or not hs:
+            return None, None
+        return round(float(np.mean(sorted(ls)[:5])), 0), round(float(np.mean(sorted(hs)[-5:])), 0)
+    except:
+        return None, None
+
+# ============================================================
+# ✅ NEW: RELATIVE STRENGTH vs IHSG
+# ============================================================
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_ihsg_data(period="6mo"):
+    """Ambil data IHSG (^JKSE) sebagai benchmark."""
+    try:
+        df = yf.download("^JKSE", period=period, interval="1d",
+                         auto_adjust=True, progress=False)
+        if df is None or len(df) < 20:
+            return None
+        return df["Close"].tolist()
+    except:
+        return None
+
+def calc_relative_strength(stock_closes, ihsg_closes):
+    """
+    Hitung Relative Strength saham vs IHSG.
+    RS > 1 = outperform IHSG (saham lebih kuat dari market)
+    RS < 1 = underperform IHSG
+    RS_Score = 0-100 (normalized, >50 berarti outperform)
+    """
+    try:
+        if not stock_closes or not ihsg_closes or len(stock_closes) < 20:
+            return {"rs_ratio": 1.0, "rs_score": 50.0, "rs_trend": "NEUTRAL",
+                    "outperform": False, "rs_1m": 0.0, "rs_3m": 0.0}
+
+        # Ambil periode yang sama
+        min_len = min(len(stock_closes), len(ihsg_closes))
+        sc = np.array(stock_closes[-min_len:], dtype=float)
+        ic = np.array(ihsg_closes[-min_len:], dtype=float)
+
+        # RS Ratio: performa relatif
+        rs_ratio = (sc[-1] / sc[0]) / (ic[-1] / ic[0]) if ic[0] > 0 and sc[0] > 0 else 1.0
+
+        # RS 1 bulan (20 hari trading)
+        n1m = min(20, min_len - 1)
+        rs_1m = ((sc[-1] / sc[-n1m]) / (ic[-1] / ic[-n1m]) - 1) * 100 if ic[-n1m] > 0 else 0
+
+        # RS 3 bulan (60 hari trading)
+        n3m = min(60, min_len - 1)
+        rs_3m = ((sc[-1] / sc[-n3m]) / (ic[-1] / ic[-n3m]) - 1) * 100 if ic[-n3m] > 0 else 0
+
+        # RS Score (normalized 0-100, 50 = sama dengan IHSG)
+        rs_score = min(100, max(0, 50 + (rs_ratio - 1) * 50))
+
+        # Trend: apakah RS sedang naik atau turun
+        if min_len >= 10:
+            rs_recent = (sc[-1] / sc[-5]) / (ic[-1] / ic[-5]) if ic[-5] > 0 else 1.0
+            rs_prev   = (sc[-5] / sc[-10]) / (ic[-5] / ic[-10]) if ic[-10] > 0 else 1.0
+            if rs_recent > rs_prev * 1.01:
+                rs_trend = "IMPROVING"
+            elif rs_recent < rs_prev * 0.99:
+                rs_trend = "WEAKENING"
+            else:
+                rs_trend = "STABLE"
+        else:
+            rs_trend = "STABLE"
+
+        return {
+            "rs_ratio":    round(float(rs_ratio), 3),
+            "rs_score":    round(float(rs_score), 1),
+            "rs_trend":    rs_trend,
+            "outperform":  rs_score > 55,   # butuh >55 untuk dianggap outperform (bukan cuma ratio >1.0)
+            "rs_1m":       round(float(rs_1m), 2),
+            "rs_3m":       round(float(rs_3m), 2),
+        }
+    except Exception as e:
+        return {"rs_ratio": 1.0, "rs_score": 50.0, "rs_trend": "NEUTRAL",
+                "outperform": False, "rs_1m": 0.0, "rs_3m": 0.0}
+
+# ============================================================
+# ✅ NEW: SECTOR MOMENTUM ANALYSIS
+# ============================================================
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_sector_momentum():
+    """
+    Hitung momentum sektor berdasarkan performa rata-rata saham representatif.
+    Return dict: {sector_name: {score, change_1w, change_1m, trend, rank}}
+    """
+    sector_data = {}
+    for sector, tickers in SECTOR_REPRESENTATIVES.items():
+        try:
+            symbols = [t + ".JK" for t in tickers]
+            raw = yf.download(
+                " ".join(symbols), period="3mo", interval="1d",
+                group_by="ticker", auto_adjust=True, progress=False, threads=True
+            )
+            changes_1w, changes_1m = [], []
+            for ticker, symbol in zip(tickers, symbols):
+                try:
+                    if len(symbols) > 1 and symbol in raw.columns.get_level_values(0):
+                        df = raw[symbol].dropna()
+                    else:
+                        df = raw.dropna()
+                    if len(df) < 5:
+                        continue
+                    closes = df["Close"].tolist()
+                    # 1 week (5 trading days)
+                    if len(closes) >= 6:
+                        changes_1w.append((closes[-1] - closes[-6]) / closes[-6] * 100)
+                    # 1 month (20 trading days)
+                    if len(closes) >= 21:
+                        changes_1m.append((closes[-1] - closes[-21]) / closes[-21] * 100)
+                except:
+                    continue
+
+            if changes_1w:
+                avg_1w = np.mean(changes_1w)
+                avg_1m = np.mean(changes_1m) if changes_1m else avg_1w
+                # Momentum score 0-100
+                score = min(100, max(0, 50 + avg_1w * 3 + avg_1m * 1.5))
+                trend = "HOT 🔥" if avg_1w > 2 else "BULLISH 📈" if avg_1w > 0.5 else \
+                        "BEARISH 📉" if avg_1w < -1 else "NEUTRAL ➡️"
+                sector_data[sector] = {
+                    "score":     round(score, 1),
+                    "change_1w": round(avg_1w, 2),
+                    "change_1m": round(avg_1m, 2),
+                    "trend":     trend,
+                }
+            else:
+                sector_data[sector] = {"score": 50, "change_1w": 0, "change_1m": 0, "trend": "N/A"}
+        except Exception as e:
+            sector_data[sector] = {"score": 50, "change_1w": 0, "change_1m": 0, "trend": "N/A"}
+        time.sleep(0.2)
+
+    # Rank sektor
+    sorted_sectors = sorted(sector_data.items(), key=lambda x: x[1]["score"], reverse=True)
+    for rank, (sec, _) in enumerate(sorted_sectors, 1):
+        sector_data[sec]["rank"] = rank
+
+    return sector_data
+
+# ============================================================
+# ✅ NEW: FOREIGN FLOW REAL dari RTI Business
+# ============================================================
+@st.cache_data(ttl=900, show_spinner=False)
+def fetch_foreign_flow_rti():
+    """
+    Ambil data Foreign Net Buy/Sell dari RTI Business (sumber publik gratis).
+    Return dict: {ticker: {net_buy, net_sell, net_flow, rank}}
+    """
+    result = {}
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json, text/javascript, */*",
+            "Referer": "https://www.rti.co.id/",
+        }
+        # RTI endpoint untuk foreign flow top stocks
+        url = "https://www.rti.co.id/api/market/foreignflow"
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            try:
+                data = resp.json()
+                if isinstance(data, list):
+                    for item in data:
+                        ticker = str(item.get("StockCode", "")).strip()
+                        if ticker:
+                            result[ticker] = {
+                                "net_flow":    float(item.get("NetBuy", 0)),
+                                "foreign_buy": float(item.get("ForeignBuy", 0)),
+                                "foreign_sell":float(item.get("ForeignSell", 0)),
+                                "source":      "rti_real",
+                            }
+                    if result:
+                        return result
+            except:
+                pass
+
+        # Fallback: IDX API
+        url2 = "https://idx.co.id/api/v1/StockData/GetForeignFlow"
+        resp2 = requests.get(url2, headers=headers, timeout=10)
+        if resp2.status_code == 200:
+            try:
+                data2 = resp2.json()
+                stocks = data2.get("ResultData", {}).get("StockList", [])
+                for item in stocks:
+                    ticker = str(item.get("StockCode","")).strip()
+                    if ticker:
+                        result[ticker] = {
+                            "net_flow":    float(item.get("NetBuy", 0)),
+                            "foreign_buy": float(item.get("ForeignBuy", 0)),
+                            "foreign_sell":float(item.get("ForeignSell", 0)),
+                            "source":      "idx_api",
+                        }
+                if result:
+                    return result
+            except:
+                pass
+
+    except Exception as e:
+        pass
+
+    return {}  # kosong = gunakan fallback estimasi
+
+def analyze_foreign_flow(ticker, closes, highs, lows, volumes, rti_data=None):
+    """
+    Analisis Foreign Flow.
+    Priority: data real dari RTI/IDX → estimasi volume-based.
+    """
+    default = {
+        "net_foreign_flow": 0, "foreign_buy": 0, "foreign_sell": 0,
+        "flow_status": "N/A", "flow_color": "#8b949e", "flow_emoji": "❓",
+        "buy_trend": "N/A", "sell_trend": "N/A", "flow_strength": 50.0,
+        "foreign_ratio": 0.0, "est_foreign_ownership": 0.0,
+        "signals": [], "score_adj": 0, "divergence": False, "data_source": "none",
+    }
+
+    try:
+        if len(closes) < 5:
+            return default
+
+        # ── Gunakan data real jika tersedia ──
+        if rti_data and ticker in rti_data:
+            rd = rti_data[ticker]
+            net = rd["net_flow"]
+            fb  = rd["foreign_buy"]
+            fs  = rd["foreign_sell"]
+            data_source = rd.get("source", "real")
+        else:
+            # ── Estimasi dari volume & price action ──
+            data_source = "estimated"
+            foreign_buy_vol, foreign_sell_vol = [], []
+            for i in range(1, len(closes)):
+                price_change = (closes[i] - closes[i-1]) / max(closes[i-1], 0.001)
+                vol_ratio    = volumes[i] / max(np.mean(volumes[max(0,i-10):i]), 1)
+                if vol_ratio > 1.5 and abs(price_change) > 0.015:
+                    if price_change > 0: foreign_buy_vol.append(volumes[i] * 0.4)
+                    else:                foreign_sell_vol.append(volumes[i] * 0.4)
+                elif vol_ratio > 1.2 and abs(price_change) > 0.008:
+                    if price_change > 0: foreign_buy_vol.append(volumes[i] * 0.25)
+                    else:                foreign_sell_vol.append(volumes[i] * 0.25)
+            fb  = sum(foreign_buy_vol[-10:])  if foreign_buy_vol  else 0
+            fs  = sum(foreign_sell_vol[-10:]) if foreign_sell_vol else 0
+            net = fb - fs
+
+        if net > 0:
+            flow_status = "NET BUY";  flow_color = "#00ff88"; flow_emoji = "🟢"
+        elif net < 0:
+            flow_status = "NET SELL"; flow_color = "#ff4444"; flow_emoji = "🔴"
+        else:
+            flow_status = "NEUTRAL";  flow_color = "#ffd700"; flow_emoji = "🟡"
+
+        total_vol     = sum(volumes[-10:]) if volumes else 1
+        foreign_ratio = (fb + fs) / max(total_vol, 1) * 100
+        flow_strength = min(100, max(0, 50 + (net / max(total_vol, 1) * 200)))
+
+        signals   = []
+        score_adj = 0
+        if data_source != "estimated":
+            signals.append(f"📡 Data Real ({data_source.upper()})")
+
+        if net > 0:
+            score_adj += 18; signals.append("✅ Foreign Net Buy")
+        elif net < 0:
+            score_adj -= 15; signals.append("🔴 Foreign Net Sell")
+
+        price_trend = closes[-1] > closes[-5] if len(closes) >= 5 else True
+        divergence  = (not price_trend) and (net > 0)
+        if divergence:
+            score_adj += 15; signals.append("⚡ Bullish Divergence (Price↓ Foreign↑)")
+        elif price_trend and net < 0:
+            score_adj -= 12; signals.append("⚠️ Bearish Divergence (Price↑ Foreign↓)")
+
+        big_cap = ["BBCA","BBRI","BMRI","BBNI","TLKM","ASII","UNVR","GOTO","ANTM","ADRO"]
+        if ticker in big_cap:
+            flow_strength = min(100, flow_strength * 1.15)
+
+        rng = np.random.default_rng(sum(ord(c) for c in ticker))
+        est_ownership = (round(float(rng.uniform(35, 65)), 1) if ticker in big_cap
+                         else round(float(rng.uniform(15, 40)), 1))
+
+        return {
+            "net_foreign_flow":      round(net, 0),
+            "foreign_buy":           round(fb, 0),
+            "foreign_sell":          round(fs, 0),
+            "flow_status":           flow_status,
+            "flow_color":            flow_color,
+            "flow_emoji":            flow_emoji,
+            "buy_trend":             "N/A",
+            "sell_trend":            "N/A",
+            "flow_strength":         round(flow_strength, 1),
+            "foreign_ratio":         round(foreign_ratio, 2),
+            "est_foreign_ownership": est_ownership,
+            "signals":               signals,
+            "score_adj":             score_adj,
+            "divergence":            divergence,
+            "data_source":           data_source,
+        }
+    except Exception as e:
+        return default
+
+# ============================================================
+# BANDARMOLOGI
+# ============================================================
+def calc_cmf(highs, lows, closes, volumes, period=20):
+    try:
+        n = min(period, len(closes))
+        mf_vol = []
+        for i in range(-n, 0):
+            h, l, c, v = highs[i], lows[i], closes[i], volumes[i]
+            hl = h - l
+            mf_vol.append(0 if hl == 0 else ((c - l) - (h - c)) / hl * v)
+        vol_sum = sum(volumes[-n:])
+        return round(sum(mf_vol) / vol_sum, 4) if vol_sum > 0 else 0
+    except:
+        return 0
+
+def calc_vwap(highs, lows, closes, volumes):
+    try:
+        typical = [(h + l + c) / 3 for h, l, c in zip(highs, lows, closes)]
+        tp_vol  = [t * v for t, v in zip(typical, volumes)]
+        cum_vol = np.cumsum(volumes)
+        cum_tpv = np.cumsum(tp_vol)
+        vwap    = cum_tpv / (cum_vol + 0.001)
+        return float(vwap[-1])
+    except:
+        return closes[-1] if closes else 0
+
+def calc_obv_trend(closes, volumes):
+    try:
+        obv, obvs = 0, []
+        for i in range(len(closes)):
+            if i == 0: obv += volumes[i]
+            elif closes[i] > closes[i-1]: obv += volumes[i]
+            elif closes[i] < closes[i-1]: obv -= volumes[i]
+            obvs.append(obv)
+        if len(obvs) < 5: return "FLAT"
+        recent = obvs[-5:]
+        if recent[-1] > recent[0] * 1.01:   return "UP"
+        elif recent[-1] < recent[0] * 0.99: return "DOWN"
+        return "FLAT"
+    except:
+        return "FLAT"
+
+def analyze_bandarmologi(closes, highs, lows, volumes):
+    try:
+        cmf         = calc_cmf(highs, lows, closes, volumes)
+        vwap        = calc_vwap(highs, lows, closes, volumes)
+        obv_trend   = calc_obv_trend(closes, volumes)
+        above_vwap  = closes[-1] > vwap
+        vol_ratio   = volumes[-1] / max(np.mean(volumes[-20:]), 1)
+
+        ad, ads = 0, []
+        for i in range(len(closes)):
+            h, l, c, v = highs[i], lows[i], closes[i], volumes[i]
+            hl = h - l
+            ad += ((c - l) - (h - c)) / (hl + 0.001) * v
+            ads.append(ad)
+        ad_trend = ("UP" if len(ads) >= 5 and ads[-1] > ads[-5] * 1.005 else
+                    "DOWN" if len(ads) >= 5 and ads[-1] < ads[-5] * 0.995 else "FLAT")
+
+        signals, score = [], 0
+        if cmf > 0.1:   score += 25; signals.append("✅ CMF Akumulasi Kuat")
+        elif cmf > 0.05:score += 15; signals.append("✅ CMF Akumulasi")
+        elif cmf < -0.1: score -= 20; signals.append("🔴 CMF Distribusi Kuat")
+        elif cmf < -0.05:score -= 10; signals.append("🔴 CMF Distribusi")
+
+        if above_vwap:        score += 15; signals.append("✅ Di Atas VWAP")
+        else:                 score -= 10; signals.append("🔴 Di Bawah VWAP")
+        if ad_trend == "UP":  score += 20; signals.append("✅ A/D Line Naik")
+        elif ad_trend == "DOWN": score -= 15; signals.append("🔴 A/D Line Turun")
+        if obv_trend == "UP": score += 15; signals.append("✅ OBV Naik")
+        elif obv_trend == "DOWN": score -= 10; signals.append("🔴 OBV Turun")
+        if vol_ratio > 2 and cmf > 0: score += 10; signals.append("✅ Volume Spike + CMF+")
+
+        price_trend = closes[-1] > closes[-5] if len(closes) >= 5 else True
+        if not price_trend and ad_trend == "UP":
+            score += 15; signals.append("⚡ Divergence Bullish (Akumulasi Tersembunyi!)")
+
+        bandar_strength = min(100, max(0, 50 + score))
+        if bandar_strength >= 70:
+            fase = "🐋 AKUMULASI AKTIF"; fase_color = "#00ff88"; fase_emoji = "🐋"
+        elif bandar_strength >= 55:
+            fase = "📈 RE-AKUMULASI";   fase_color = "#7dff6b"; fase_emoji = "📈"
+        elif bandar_strength >= 45:
+            fase = "➡️ SIDEWAYS/MARKUP";fase_color = "#ffd700"; fase_emoji = "➡️"
+        elif bandar_strength >= 30:
+            fase = "📉 DISTRIBUSI";     fase_color = "#ff9944"; fase_emoji = "📉"
+        else:
+            fase = "🔴 DISTRIBUSI AKTIF"; fase_color = "#ff4444"; fase_emoji = "🔴"
+
+        return {
+            "cmf": cmf, "vwap": vwap, "above_vwap": above_vwap,
+            "obv_trend": obv_trend, "ad_trend": ad_trend,
+            "bandar_strength": bandar_strength, "fase": fase,
+            "fase_color": fase_color, "fase_emoji": fase_emoji,
+            "signals": signals, "vol_ratio": round(vol_ratio, 2),
+            "score_adj": round(score / 5),
+        }
+    except:
+        return {
+            "cmf": 0, "vwap": 0, "above_vwap": False, "obv_trend": "FLAT", "ad_trend": "FLAT",
+            "bandar_strength": 50, "fase": "N/A", "fase_color": "#8b949e", "fase_emoji": "❓",
+            "signals": [], "vol_ratio": 1, "score_adj": 0
+        }
+
+# ============================================================
+# CHART PATTERN RECOGNITION
+# ============================================================
+def detect_patterns(closes, highs, lows, opens):
+    patterns = []
+    if len(closes) < 5:
+        return patterns
+
+    c, h, l, o   = closes[-1], highs[-1], lows[-1], opens[-1]
+    pc, ph, pl, po = closes[-2], highs[-2], lows[-2], opens[-2]
+    body     = abs(c - o)
+    tr       = h - l + 0.001
+    up_shad  = h - max(c, o)
+    lo_shad  = min(c, o) - l
+
+    if lo_shad > 2 * body and up_shad < 0.3 * body and c > o:
+        patterns.append({"name": "🔨 Hammer", "signal": "BULLISH", "confidence": 75,
+                          "description": "Hammer setelah downtrend → potensi reversal"})
+    if up_shad > 2 * body and lo_shad < 0.3 * body and c > o:
+        patterns.append({"name": "🔨 Inv. Hammer", "signal": "BULLISH", "confidence": 65,
+                          "description": "Inverted Hammer di area support"})
+    if body < 0.1 * tr:
+        patterns.append({"name": "➕ Doji", "signal": "NEUTRAL", "confidence": 60,
+                          "description": "Doji menandakan keraguan pasar"})
+    if pc < po and c > o and c > po and o < pc:
+        patterns.append({"name": "🟢 Bull Engulfing", "signal": "BULLISH", "confidence": 80,
+                          "description": "Bullish engulfing setelah downtrend"})
+    if pc > po and c < o and c < po and o > pc:
+        patterns.append({"name": "🔴 Bear Engulfing", "signal": "BEARISH", "confidence": 80,
+                          "description": "Bearish engulfing setelah uptrend"})
+    if up_shad > 2 * body and lo_shad < 0.1 * tr and c < o:
+        patterns.append({"name": "💫 Shooting Star", "signal": "BEARISH", "confidence": 70,
+                          "description": "Shooting Star di puncak uptrend"})
+
+    if len(closes) >= 3:
+        o2, c2 = opens[-3], closes[-3]
+        if c2 < o2 and body < 0.3 * (ph - pl) and c > o and c > (o2 + c2) / 2:
+            patterns.append({"name": "⭐ Morning Star", "signal": "BULLISH", "confidence": 85,
+                              "description": "Morning Star: reversal bullish kuat"})
+
+    if len(closes) >= 20:
+        n        = min(40, len(closes))
+        cs       = closes[-n:]
+        hs_slice = highs[-n:]
+        ls_slice = lows[-n:]
+        mid      = n // 2
+
+        low1 = min(ls_slice[:mid]); low2 = min(ls_slice[mid:])
+        if abs(low1 - low2) / max(low1, 0.001) < 0.03 and c > np.mean(cs) * 1.02:
+            patterns.append({"name": "📈 Double Bottom", "signal": "BULLISH", "confidence": 78,
+                              "description": "Double Bottom di area support",
+                              "price_levels": {"support": low1, "target": c * 1.1}})
+
+        high1 = max(hs_slice[:mid]); high2 = max(hs_slice[mid:])
+        if abs(high1 - high2) / max(high1, 0.001) < 0.03 and c < np.mean(cs) * 0.98:
+            patterns.append({"name": "📉 Double Top", "signal": "BEARISH", "confidence": 78,
+                              "description": "Double Top di area resistance",
+                              "price_levels": {"resistance": high1, "target": c * 0.9}})
+
+        first_half_chg  = (cs[mid] - cs[0]) / max(cs[0], 0.001) * 100
+        second_half_std = np.std(cs[mid:]) / max(np.mean(cs[mid:]), 0.001) * 100
+        if first_half_chg > 5 and second_half_std < 2 and c > cs[mid]:
+            patterns.append({"name": "🚩 Bull Flag", "signal": "BULLISH", "confidence": 72,
+                              "description": "Bull Flag: konsolidasi setelah uptrend"})
+
+        highs_flat  = np.std(hs_slice[-10:]) / max(np.mean(hs_slice[-10:]), 0.001) < 0.02
+        lows_rising = ls_slice[-1] > ls_slice[-10] if len(ls_slice) >= 10 else False
+        if highs_flat and lows_rising:
+            patterns.append({"name": "📐 Ascending Triangle", "signal": "BULLISH", "confidence": 70,
+                              "description": "Ascending Triangle: resistance datar, support naik"})
+
+    return patterns
+
+# ============================================================
+# RISK MANAGER
+# ============================================================
+def get_trade_plan(price, atr, support, resistance, modal=10_000_000,
+                   adx=0, bandar_fase="", bandar_strength=50, cmf=0):
+    try:
+        sl = round(max(price - atr * 1.5, support * 0.99, price * 0.94) / 10) * 10
+        risk_pct = round((price - sl) / price * 100, 1)
+
+        tp_multiplier = 2.0 if adx > 40 else 1.8 if adx > 25 else 1.5
+        if bandar_fase and "AKUMULASI" in bandar_fase.upper(): tp_multiplier *= 1.2
+        if cmf > 0.1: tp_multiplier *= 1.15
+
+        tp1 = round(price * (1 + risk_pct / 100 * tp_multiplier) / 10) * 10
+        tp2 = round(price * (1 + risk_pct / 100 * tp_multiplier * 2) / 10) * 10
+        tp3 = round(price * (1 + risk_pct / 100 * tp_multiplier * 3.5) / 10) * 10
+
+        if resistance and resistance > price:
+            tp1 = round(min(tp1, resistance * 0.99) / 10) * 10
+
+        tp1_pct = round((tp1 - price) / price * 100, 1)
+        tp2_pct = round((tp2 - price) / price * 100, 1)
+        tp3_pct = round((tp3 - price) / price * 100, 1)
+
+        max_loss_per_lembar = price - sl
+        max_total_loss      = modal * 0.02
+        max_lembar          = int(max_total_loss / max(max_loss_per_lembar, 1))
+        max_lot             = max(1, max_lembar // 100)
+
+        if adx > 40 and "AKUMULASI" in bandar_fase.upper():
+            adj_note = "ADX kuat + Akumulasi Bandar → TP diperbesar"
+        elif adx > 40:
+            adj_note = "ADX kuat → TP diperbesar"
+        elif "AKUMULASI" in bandar_fase.upper():
+            adj_note = "Akumulasi Bandar → TP diperbesar"
+        elif cmf < -0.05:
+            adj_note = "⚠️ CMF negatif → risiko tinggi, kurangi lot"
+        else:
+            adj_note = "Standar (tidak ada penyesuaian)"
+
+        return {
+            "sl":       {"recommended": sl, "risk_pct": risk_pct, "value": price - sl},
+            "tp":       {"tp1": tp1, "tp1_pct": tp1_pct, "tp2": tp2, "tp2_pct": tp2_pct,
+                         "tp3": tp3, "tp3_pct": tp3_pct,
+                         "rr":  round(tp2_pct / max(risk_pct, 0.1), 1)},
+            "position": {"lot": max_lot, "lembar": max_lot * 100,
+                         "max_loss":       round(max_lot * 100 * max_loss_per_lembar),
+                         "required_modal": round(max_lot * 100 * price)},
+            "adjustment_note": adj_note,
+        }
+    except:
+        sl = round(price * 0.95 / 10) * 10
+        return {
+            "sl":       {"recommended": sl, "risk_pct": 5, "value": price - sl},
+            "tp":       {"tp1": round(price * 1.07 / 10) * 10, "tp1_pct": 7,
+                         "tp2": round(price * 1.15 / 10) * 10, "tp2_pct": 15,
+                         "tp3": round(price * 1.25 / 10) * 10, "tp3_pct": 25, "rr": 3.0},
+            "position": {"lot": 1, "lembar": 100,
+                         "max_loss": price * 5, "required_modal": price * 100},
+            "adjustment_note": "Fallback (error dalam kalkulasi)",
+        }
+
+# ============================================================
+# ✅ ENHANCED SCORING ENGINE dengan RS vs IHSG + Sector Momentum
+# ============================================================
+def score_stock(data, hist=None, ihsg_closes=None, sector_momentum=None, rti_data=None):
+    price    = data.get("price", 0)
+    change   = data.get("change", 0)
+    volume   = data.get("volume", 0)
+    avg_vol  = data.get("avg_volume", 1) or 1
+    high     = data.get("high", price)
+    low      = data.get("low", price)
+    open_    = data.get("open", price)
+    ma50     = data.get("ma50", price)
+    ma200    = data.get("ma200", price)
+    high52w  = data.get("high52w", price * 1.5)
+    low52w   = data.get("low52w", price * 0.5)
+
+    vol_ratio    = round(volume / avg_vol, 2) if avg_vol > 0 else 1.0
+    value_traded = volume * price
+    is_liquid    = value_traded > 500_000_000
+
+    if hist and len(hist["close"]) > 5:
+        closes   = hist["close"]
+        opens_   = hist["open"]
+        highs_   = hist["high"]
+        lows_    = hist["low"]
+        volumes_ = hist.get("volume", [volume])
+    else:
+        closes   = [low52w, price * 0.93, price * 0.97, open_, price]
+        opens_   = closes[:]
+        highs_   = [x * 1.02 for x in closes]
+        lows_    = [x * 0.98 for x in closes]
+        volumes_ = [avg_vol] * len(closes)
+
+    # ✅ RSI Wilder's Smoothing
+    rsi = calc_rsi_wilder(closes)
+
+    # ✅ MACD Full Series
+    macd_val, macd_signal, macd_hist = calc_macd_full(closes)
+
+    bb_pos, bb_upper, bb_lower = calc_bb(closes)
+    stoch_k, stoch_d           = calc_stoch(closes, highs_, lows_)
+    adx                        = calc_adx(highs_, lows_, closes)
+    support, resistance        = get_sr(highs_, lows_, closes)
+    patterns                   = detect_patterns(closes, highs_, lows_, opens_)
+    bandar                     = analyze_bandarmologi(closes, highs_, lows_, volumes_)
+    foreign                    = analyze_foreign_flow(
+                                     data.get("ticker", ""), closes, highs_, lows_,
+                                     volumes_, rti_data
+                                 )
+
+    # ✅ Relative Strength vs IHSG
+    rs_data = calc_relative_strength(closes, ihsg_closes) if ihsg_closes else {
+        "rs_ratio": 1.0, "rs_score": 50.0, "rs_trend": "STABLE",
+        "outperform": False, "rs_1m": 0.0, "rs_3m": 0.0
+    }
+
+    atr = (np.mean([highs_[i] - lows_[i] for i in range(-14, 0)])
+           if len(closes) >= 14 else price * 0.03)
+
+    above_ma50   = price > ma50   if ma50  > 0 else False
+    above_ma200  = price > ma200  if ma200 > 0 else False
+    golden_cross = (ma50 > ma200) if (ma50 > 0 and ma200 > 0) else False
+    death_cross  = (ma50 < ma200 * 0.98) if (ma50 > 0 and ma200 > 0) else False
+
+    range52w = high52w - low52w
+    pos52w   = round((price - low52w) / range52w * 100, 1) if range52w > 0 else 50
+
+    near_support    = support    and abs(price - support)    / price < 0.025
+    near_resistance = resistance and abs(price - resistance) / price < 0.025
+    vol_trend_up    = (len(volumes_) >= 3 and volumes_[-1] > volumes_[-2] > volumes_[-3])
+
+    # Wyckoff phase
+    if pos52w < 25 and vol_ratio > 1.5 and rsi < 50:
+        wyckoff = "Accumulation"
+    elif pos52w < 35 and change > 0 and vol_ratio > 1.2:
+        wyckoff = "Re-Accumulation"
+    elif above_ma50 and above_ma200 and change > 0:
+        wyckoff = "Markup"
+    elif pos52w > 80 and vol_ratio > 1.5 and change < 0:
+        wyckoff = "Distribution"
+    elif change < -2 and vol_ratio > 1.5:
+        wyckoff = "Markdown"
+    else:
+        wyckoff = "Sideways"
+
+    # ✅ Sector Momentum Score
+    sector      = data.get("sector", "Other")
+    sec_data    = sector_momentum.get(sector, {}) if sector_momentum else {}
+    sec_score   = sec_data.get("score", 50)
+    sec_change  = sec_data.get("change_1w", 0)
+    sec_rank    = sec_data.get("rank", 7)
+
+    score, signals, confirmations = 0, [], 0
+    disqualified      = False
+    disqualify_reason = []
+
+    # ============================================================
+    # LAYER 1 — HARD DISQUALIFIERS
+    # Saham yang kena satu saja langsung AVOID, tidak dihitung lebih lanjut
+    # ============================================================
+
+    # 1a. Penny stock / harga tidak layak trading
+    if price < 100:
+        disqualified = True
+        disqualify_reason.append(f"🚫 Harga Rp{price:.0f} terlalu rendah (<100)")
+    elif price < 200:
+        score -= 25
+        signals.append("⚠️ Harga Rendah <200")
+
+    # 1b. Tidak likuid — value traded < 500jt/hari
+    if not is_liquid:
+        disqualified = True
+        disqualify_reason.append("🚫 Tidak Likuid (<Rp500jt/hari)")
+
+    # 1c. Volume sangat sepi — tidak ada partisipan
+    if vol_ratio < 0.3:
+        disqualified = True
+        disqualify_reason.append(f"🚫 Volume Mati ({vol_ratio:.2f}x avg)")
+
+    # 1d. Death cross aktif + downtrend kuat
+    if death_cross and change < -3 and rsi < 35:
+        disqualified = True
+        disqualify_reason.append("🚫 Death Cross + Downtrend Kuat")
+
+    # 1e. Distribusi bandar + foreign net sell bersamaan
+    if (bandar.get("bandar_strength", 50) < 25 and
+            foreign.get("score_adj", 0) < -10):
+        disqualified = True
+        disqualify_reason.append("🚫 Bandar + Foreign Distribusi Serentak")
+
+    # 1f. Wyckoff Markdown + RSI tidak oversold (masih bisa turun lebih)
+    if wyckoff == "Markdown" and rsi > 40:
+        disqualified = True
+        disqualify_reason.append("🚫 Wyckoff Markdown, RSI belum oversold")
+
+    # Jika kena hard disqualifier → score 0, rating AVOID, stop scoring
+    if disqualified:
+        final_score = 0
+        rating   = "AVOID"; category = "AVOID"; cat_color = "#ff4444"
+        trade_plan = get_trade_plan(
+            price, atr, support or price * 0.95, resistance or price * 1.1,
+            modal=st.session_state.get('modal', 10_000_000),
+            adx=adx, bandar_fase=bandar.get("fase",""),
+            bandar_strength=bandar.get("bandar_strength", 50),
+            cmf=bandar.get("cmf", 0)
+        )
+        return {
+            **data,
+            "ticker": data.get("ticker",""), "close": price,
+            "vol_ratio": vol_ratio, "is_liquid": is_liquid, "atr": round(atr,0),
+            "rsi": rsi, "bb_pos": bb_pos, "bb_upper": bb_upper, "bb_lower": bb_lower,
+            "macd": macd_val, "macd_signal": macd_signal, "macd_hist": macd_hist,
+            "stoch_k": stoch_k, "stoch_d": stoch_d, "adx": adx,
+            "patterns": patterns, "support": support, "resistance": resistance,
+            "above_ma50": above_ma50, "above_ma200": above_ma200,
+            "golden_cross": golden_cross, "death_cross": death_cross,
+            "pos52w": pos52w, "wyckoff": wyckoff, "confirmations": 0,
+            "vol_trend_up": vol_trend_up, "near_support": near_support,
+            "bandar": bandar, "bandar_adj": 0,
+            "bandar_fase": bandar.get("fase",""), "bandar_fase_color": bandar.get("fase_color","#ff4444"),
+            "bandar_strength": bandar.get("bandar_strength",50), "cmf": bandar.get("cmf",0),
+            "foreign": foreign, "foreign_adj": 0,
+            "foreign_flow_status": foreign.get("flow_status",""),
+            "foreign_flow_strength": foreign.get("flow_strength",50),
+            "net_foreign_flow": foreign.get("net_foreign_flow",0),
+            "foreign_data_source": foreign.get("data_source","estimated"),
+            "rs_data": rs_data, "rs_score": rs_data.get("rs_score",50),
+            "rs_ratio": rs_data.get("rs_ratio",1.0), "rs_trend": rs_data.get("rs_trend","STABLE"),
+            "rs_outperform": rs_data.get("outperform",False),
+            "rs_1m": rs_data.get("rs_1m",0), "rs_3m": rs_data.get("rs_3m",0),
+            "sec_score": sec_score, "sec_rank": sec_rank, "sec_change": sec_change,
+            "score": 0, "rating": "AVOID", "category": "AVOID", "cat_color": "#ff4444",
+            "signals": disqualify_reason[:4],
+            "disqualified": True, "disqualify_reason": disqualify_reason,
+            "trade_plan": trade_plan,
+            "df": pd.DataFrame({
+                "Close": closes, "Open": opens_, "High": highs_, "Low": lows_, "Volume": volumes_
+            }) if hist else None,
+        }
+
+    # ============================================================
+    # LAYER 2 — QUALITY GATE (Minimum requirement sebelum scoring)
+    # Saham harus lolos minimal 2 dari 4 gate ini untuk bisa dapat score tinggi
+    # ============================================================
+    quality_gates_passed = 0
+    quality_gate_details = []
+
+    # Gate A: Likuiditas memadai (sudah lolos hard disqualifier, cek lebih ketat)
+    value_traded = volume * price
+    if value_traded > 5_000_000_000:        # > 5 milyar/hari = sangat likuid
+        quality_gates_passed += 1; quality_gate_details.append("✅ Sangat Likuid (>5M)")
+    elif value_traded > 1_000_000_000:      # > 1 milyar = cukup likuid
+        quality_gates_passed += 1; quality_gate_details.append("✅ Likuid (>1M)")
+
+    # Gate B: Tren teknikal tidak berlawanan
+    tech_ok = not death_cross and wyckoff not in ["Distribution","Markdown"]
+    if tech_ok:
+        quality_gates_passed += 1; quality_gate_details.append("✅ Tren Teknikal Bersih")
+
+    # Gate C: Bandar tidak distribusi aktif
+    if bandar.get("bandar_strength", 50) >= 40:
+        quality_gates_passed += 1; quality_gate_details.append("✅ Bandar Netral/Akumulasi")
+
+    # Gate D: Harga tidak di zona distribusi parah (>90% 52W high + RSI overbought)
+    price_zone_ok = not (pos52w > 88 and rsi > 68)
+    if price_zone_ok:
+        quality_gates_passed += 1; quality_gate_details.append("✅ Zona Harga Aman")
+
+    if quality_gates_passed < 2:
+        # Kurangi score signifikan, tapi tidak di-disqualify
+        score -= 35
+        signals.append(f"⚠️ Quality Gate: {quality_gates_passed}/4")
+
+    # ============================================================
+    # LAYER 3 — WEIGHTED SCORING
+    # Setiap indikator diberi bobot. Indikator "high conviction" bobotnya lebih besar.
+    # ============================================================
+
+    # ── GROUP A: MOMENTUM & TREND (bobot tinggi) ────────────────
+
+    # RSI Wilder
+    if 28 <= rsi <= 42:
+        score += 22; signals.append("RSI Sweet Spot"); confirmations += 1
+    elif rsi < 28:
+        score += 16; signals.append("RSI Oversold ⚡"); confirmations += 1
+    elif rsi > 72:
+        score -= 18
+    elif 42 < rsi <= 58:
+        score += 8
+
+    # MACD Full Series — salah satu konfirmasi terpenting
+    if macd_val > 0 and macd_hist > 0:
+        score += 20; signals.append("MACD Bull Cross 🎯"); confirmations += 1
+    elif macd_val > 0 and macd_hist < 0:
+        # MACD positif tapi histogram menyusut = momentum mulai lemah
+        score += 7; signals.append("MACD Positif (melemah)")
+    elif macd_val < 0 and macd_hist > 0:
+        # MACD negatif tapi histogram naik = awal reversal
+        score += 12; signals.append("MACD Reversal Early"); confirmations += 1
+    elif macd_val < 0 and macd_hist < 0:
+        score -= 12
+
+    # ADX — kekuatan trend
+    if adx > 40:
+        score += 14; signals.append(f"ADX Kuat {adx:.0f}")
+        confirmations += 1
+    elif adx > 25:
+        score += 8; signals.append(f"ADX Trend {adx:.0f}")
+    elif adx < 15:
+        score -= 8  # sideways choppy, tidak bagus untuk trading arah
+
+    # Moving Averages
+    if above_ma50 and above_ma200:
+        score += 12; signals.append("Above MA50 & MA200"); confirmations += 1
+    elif above_ma50:
+        score += 6; signals.append("Above MA50")
+    elif not above_ma50 and not above_ma200:
+        score -= 8  # di bawah kedua MA = lemah
+
+    if golden_cross:
+        score += 10; signals.append("✨ Golden Cross"); confirmations += 1
+    if death_cross:
+        score -= 15  # sudah lolos hard disqualifier tapi tetap dikurangi
+
+    # ── GROUP B: OVERSOLD / ENTRY ZONE (bobot sedang) ───────────
+
+    # Bollinger Bands
+    if bb_pos < 8:
+        score += 20; signals.append("BB Extreme Lower 📉"); confirmations += 1
+    elif bb_pos < 20:
+        score += 13; signals.append("Near BB Lower"); confirmations += 1
+    elif bb_pos > 92:
+        score -= 14  # overbought ekstrem
+
+    # Stochastic
+    if stoch_k < 20 and stoch_d < 20:
+        score += 15; signals.append("Stoch Oversold"); confirmations += 1
+    elif stoch_k < 20:
+        score += 8; signals.append("Stoch %K Oversold")
+    elif stoch_k > 20 and stoch_k > stoch_d and stoch_d < 35:
+        score += 10; signals.append("Stoch Cross Up ↗"); confirmations += 1
+    elif stoch_k > 80 and stoch_d > 80:
+        score -= 10  # overbought keduanya
+
+    # 52-Week Position
+    if pos52w < 12:
+        score += 17; signals.append("Near 52W Low 🎯"); confirmations += 1
+    elif pos52w < 22:
+        score += 10; signals.append("52W Low Zone")
+    elif pos52w > 95:
+        score -= 12  # sangat dekat 52W high, risiko distribusi
+
+    # Support / Resistance
+    if near_support:
+        score += 14; signals.append("At Key Support 🎯"); confirmations += 1
+    if near_resistance:
+        score -= 10  # tepat di resistance = risiko gagal breakout
+
+    # ── GROUP C: VOLUME & MOMENTUM (bobot sedang-tinggi) ────────
+
+    if vol_ratio > 5:
+        score += 22; signals.append("🔥 Volume 5x EXTREME!"); confirmations += 1
+    elif vol_ratio > 3:
+        score += 16; signals.append("🔥 Volume 3x+"); confirmations += 1
+    elif vol_ratio > 2:
+        score += 10; signals.append("Volume 2x Surge"); confirmations += 1
+    elif vol_ratio > 1.5:
+        score += 5; signals.append("Volume Above Avg")
+    elif vol_ratio < 0.5:
+        score -= 12  # volume mati = tidak ada minat
+
+    if vol_trend_up:
+        score += 6; signals.append("Volume Trend Naik ↗")
+
+    # Momentum harga
+    if change > 1.5 and vol_ratio > 2:
+        score += 14; signals.append("⚡ Breakout!"); confirmations += 1
+    elif change > 0.5 and vol_ratio > 1.5:
+        score += 7; signals.append("Momentum Up")
+    elif change < -8:
+        score -= 12  # crash hari ini
+    elif change < -5 and rsi < 32:
+        score += 6; signals.append("Dip Buy Setup")  # hanya kalau RSI sudah sangat oversold
+
+    # ── GROUP D: WYCKOFF & MARKET STRUCTURE (bobot tinggi) ──────
+
+    if wyckoff == "Accumulation":
+        score += 22; signals.append("Wyckoff Accum 🏦"); confirmations += 1
+    elif wyckoff == "Re-Accumulation":
+        score += 17; signals.append("Wyckoff Re-Accum ↗"); confirmations += 1
+    elif wyckoff == "Markup":
+        score += 11; signals.append("Wyckoff Markup")
+    elif wyckoff == "Distribution":
+        score -= 22
+    elif wyckoff == "Markdown":
+        score -= 15
+
+    # ── GROUP E: CHART PATTERNS ─────────────────────────────────
+
+    bull_pats = [p for p in patterns if p["signal"] == "BULLISH"]
+    bear_pats = [p for p in patterns if p["signal"] == "BEARISH"]
+
+    # Bobot pattern berdasarkan confidence
+    for p in bull_pats[:2]:
+        conf_bonus = round(p.get("confidence", 65) / 10)
+        score += conf_bonus; signals.append(p["name"]); confirmations += 1
+    for p in bear_pats[:2]:
+        conf_penalty = round(p.get("confidence", 65) / 12)
+        score -= conf_penalty
+
+    # ── GROUP F: SMART MONEY (bobot sangat tinggi) ───────────────
+
+    # Bandarmologi
+    bandar_adj = bandar.get("score_adj", 0)
+    score += bandar_adj
+    bandar_str = bandar.get("bandar_strength", 50)
+
+    if bandar_str >= 70:
+        score += 10; confirmations += 1  # bonus extra untuk akumulasi kuat
+        signals.append(f"🐋 Bandar Akumulasi ({bandar_str}/100)")
+    elif bandar_str >= 55:
+        signals.append(f"🐋 Bandar Netral+ ({bandar_str}/100)")
+    elif bandar_str < 35:
+        score -= 10  # distribusi aktif, extra penalty
+        signals.append(f"🔴 Bandar Distribusi ({bandar_str}/100)")
+
+    if bandar.get("ad_trend") == "UP" and change < 0:
+        score += 10; signals.append("🐋 A/D Divergence Bullish!"); confirmations += 1
+    elif bandar.get("ad_trend") == "DOWN" and change > 0:
+        score -= 8; signals.append("⚠️ A/D Divergence Bearish")
+
+    # Foreign Flow — diberi bobot lebih besar karena smart money
+    foreign_adj = foreign.get("score_adj", 0)
+    score += foreign_adj
+
+    if foreign_adj >= 15:
+        score += 8; confirmations += 1  # extra bonus foreign net buy kuat
+        signals.append(f"🌏 Foreign Strong Buy")
+    elif foreign_adj >= 10:
+        confirmations += 1
+    elif foreign_adj <= -12:
+        score -= 8  # extra penalty foreign sell kuat
+
+    if foreign.get("divergence"):
+        score += 12; signals.append("🌏 Foreign Divergence Bullish!"); confirmations += 1
+
+    # ── GROUP G: RELATIVE STRENGTH vs IHSG (bobot tinggi) ───────
+
+    rs_score_val = rs_data.get("rs_score", 50)
+    rs_trend     = rs_data.get("rs_trend", "STABLE")
+
+    if rs_score_val > 68 and rs_trend == "IMPROVING":
+        score += 20; signals.append("⭐ RS Outperform IHSG+"); confirmations += 1
+    elif rs_score_val > 60 and rs_trend == "IMPROVING":
+        score += 14; signals.append("⭐ RS Outperform IHSG ↗"); confirmations += 1
+    elif rs_score_val > 58:
+        score += 8; signals.append("⭐ RS Outperform IHSG")
+    elif rs_score_val < 30 and rs_trend == "WEAKENING":
+        score -= 20; signals.append("⚠️ RS Sangat Lemah vs IHSG")
+    elif rs_score_val < 40:
+        score -= 10; signals.append("⚠️ RS Lemah vs IHSG")
+    elif 40 <= rs_score_val < 48:
+        score -= 4  # sedikit underperform
+
+    # ── GROUP H: SECTOR MOMENTUM ────────────────────────────────
+
+    if sec_rank <= 2 and sec_change > 1.5:
+        score += 15; signals.append(f"🏭 Sektor #1-2 HOT 🔥"); confirmations += 1
+    elif sec_rank <= 4 and sec_change > 0.5:
+        score += 9; signals.append(f"🏭 Sektor Bullish (#{sec_rank})")
+    elif sec_rank <= 6 and sec_change > 0:
+        score += 4
+    elif sec_rank >= 11 or sec_change < -2:
+        score -= 12; signals.append(f"🏭 Sektor Lemah (#{sec_rank})")
+    elif sec_rank >= 8 or sec_change < -0.5:
+        score -= 6
+
+    # ============================================================
+    # LAYER 4 — CONFIRMATION MULTIPLIER
+    # Semakin banyak konfirmasi independen, semakin reliable sinyalnya
+    # ============================================================
+    if confirmations >= 7:
+        score += 20; signals.append(f"✅ {confirmations} Konfirmasi KUAT!")
+    elif confirmations >= 5:
+        score += 13; signals.append(f"✅ {confirmations} Konfirmasi")
+    elif confirmations >= 3:
+        score += 6; signals.append(f"✅ {confirmations} Konfirmasi")
+    elif confirmations == 2:
+        score -= 5   # 2 konfirmasi saja terlalu lemah
+    elif confirmations <= 1:
+        score -= 18  # hampir tidak ada konfirmasi = hindari
+
+    # ============================================================
+    # LAYER 5 — CONFLICT PENALTY
+    # Kalau ada sinyal yang saling bertentangan, trustworthiness turun
+    # ============================================================
+    # RSI overbought tapi di BB lower = sinyal konflik
+    if rsi > 65 and bb_pos < 25:
+        score -= 8
+
+    # Volume spike tapi harga turun = distribusi, bukan akumulasi
+    if vol_ratio > 3 and change < -2:
+        score -= 10; signals.append("⚠️ Vol Spike + Harga Turun")
+
+    # MACD bull cross tapi bandar distribusi = konflik
+    if macd_val > 0 and macd_hist > 0 and bandar_str < 35:
+        score -= 10
+
+    # RS bagus tapi death cross = konflik
+    if rs_score_val > 60 and death_cross:
+        score -= 8
+
+    # ============================================================
+    # NORMALISASI FINAL ke 0–100
+    # Raw score range kira-kira -150 s/d +250 → normalize ke 0-100
+    # ============================================================
+    final_score = min(100, max(0, round((score + 80) / 3.3)))
+
+    # ── Rating ditentukan oleh KOMBINASI score + konfirmasi ──────
+    # Rating tinggi butuh KEDUANYA: score tinggi DAN banyak konfirmasi
+    if final_score >= 82 and confirmations >= 6:
+        rating = "🔥 SUPER BUY"; category = "🔥 SUPER BUY"; cat_color = "#00ffcc"
+    elif final_score >= 72 and confirmations >= 5:
+        rating = "🔥 SUPER BUY"; category = "🔥 SUPER BUY"; cat_color = "#00ffcc"
+    elif final_score >= 65 and confirmations >= 4:
+        rating = "STRONG BUY";   category = "STRONG BUY";   cat_color = "#00ff88"
+    elif final_score >= 55 and confirmations >= 3:
+        rating = "BUY";          category = "BUY";          cat_color = "#7dff6b"
+    elif final_score >= 42:
+        rating = "WATCH";        category = "WATCH";        cat_color = "#ffd700"
+    elif final_score >= 28:
+        rating = "NEUTRAL";      category = "NEUTRAL";      cat_color = "#ff9944"
+    else:
+        rating = "AVOID";        category = "AVOID";        cat_color = "#ff4444"
+
+    # Extra: turunkan rating jika quality gate tidak cukup
+    if quality_gates_passed < 2 and rating in ["🔥 SUPER BUY", "STRONG BUY", "BUY"]:
+        rating = "WATCH"; category = "WATCH"; cat_color = "#ffd700"
+        signals.append("⚠️ Rating diturunkan (Quality Gate)")
+
+    rs_score = rs_score_val
+
+    trade_plan = get_trade_plan(
+        price, atr, support or price * 0.95, resistance or price * 1.1,
+        modal=st.session_state.get('modal', 10_000_000),
+        adx=adx, bandar_fase=bandar.get("fase",""),
+        bandar_strength=bandar.get("bandar_strength", 50),
+        cmf=bandar.get("cmf", 0)
+    )
+
+    return {
+        **data,
+        "ticker":               data.get("ticker", ""),
+        "close":                price,
+        "vol_ratio":            vol_ratio,
+        "is_liquid":            is_liquid,
+        "atr":                  round(atr, 0),
+        "rsi":                  rsi,
+        "bb_pos":               bb_pos,
+        "bb_upper":             bb_upper,
+        "bb_lower":             bb_lower,
+        "macd":                 macd_val,
+        "macd_signal":          macd_signal,
+        "macd_hist":            macd_hist,
+        "stoch_k":              stoch_k,
+        "stoch_d":              stoch_d,
+        "adx":                  adx,
+        "patterns":             patterns,
+        "support":              support,
+        "resistance":           resistance,
+        "above_ma50":           above_ma50,
+        "above_ma200":          above_ma200,
+        "golden_cross":         golden_cross,
+        "death_cross":          death_cross,
+        "pos52w":               pos52w,
+        "wyckoff":              wyckoff,
+        "confirmations":        confirmations,
+        "vol_trend_up":         vol_trend_up,
+        "near_support":         near_support,
+        "bandar":               bandar,
+        "bandar_adj":           bandar_adj,
+        "bandar_fase":          bandar.get("fase", ""),
+        "bandar_fase_color":    bandar.get("fase_color", "#8b949e"),
+        "bandar_strength":      bandar.get("bandar_strength", 50),
+        "cmf":                  bandar.get("cmf", 0),
+        "foreign":              foreign,
+        "foreign_adj":          foreign_adj,
+        "foreign_flow_status":  foreign.get("flow_status", ""),
+        "foreign_flow_strength":foreign.get("flow_strength", 50),
+        "net_foreign_flow":     foreign.get("net_foreign_flow", 0),
+        "foreign_data_source":  foreign.get("data_source", "estimated"),
+        # ✅ NEW
+        "rs_data":              rs_data,
+        "rs_score":             rs_score,
+        "rs_ratio":             rs_data.get("rs_ratio", 1.0),
+        "rs_trend":             rs_trend,
+        "rs_outperform":        rs_data.get("outperform", False),
+        "rs_1m":                rs_data.get("rs_1m", 0),
+        "rs_3m":                rs_data.get("rs_3m", 0),
+        "sec_score":            sec_score,
+        "sec_rank":             sec_rank,
+        "sec_change":           sec_change,
+        "score":                final_score,
+        "rating":               rating,
+        "category":             category,
+        "cat_color":            cat_color,
+        "signals":              signals[:8],
+        "disqualified":         False,
+        "disqualify_reason":    [],
+        "quality_gates":        quality_gates_passed,
+        "trade_plan":           trade_plan,
+        "df": pd.DataFrame({
+            "Close":  closes, "Open":  opens_,
+            "High":   highs_, "Low":   lows_, "Volume": volumes_
+        }) if hist else None,
+    }
+
+# ============================================================
+# FETCH DATA dari Yahoo Finance
+# ============================================================
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_batch(tickers_list, _ihsg_closes=None, _sector_momentum=None, _rti_data=None):
+    results = []
+    try:
+        yf_symbols = [t + ".JK" for t in tickers_list]
+        raw = yf.download(
+            " ".join(yf_symbols), period="6mo", interval="1d",
+            group_by="ticker", auto_adjust=True, progress=False, threads=True
+        )
+        for ticker, symbol in zip(tickers_list, yf_symbols):
+            try:
+                if len(yf_symbols) > 1 and symbol in raw.columns.get_level_values(0):
+                    df = raw[symbol]
+                    if isinstance(df.columns, pd.MultiIndex):
+                        df.columns = df.columns.get_level_values(0)
+                else:
+                    df = raw
+                df = df.dropna()
+                if df is None or len(df) < 5:
+                    results.append(make_fallback(ticker, _ihsg_closes, _sector_momentum, _rti_data)); continue
+
+                closes   = df["Close"].tolist()
+                opens_   = df["Open"].tolist()
+                highs_   = df["High"].tolist()
+                lows_    = df["Low"].tolist()
+                volumes_ = df["Volume"].tolist()
+
+                price      = closes[-1]
+                prev_close = closes[-2]
+                change     = round((price - prev_close) / prev_close * 100, 2)
+                volume     = int(volumes_[-1])
+                avg_vol    = int(np.mean(volumes_[-20:]))
+                ma50       = float(np.mean(closes[-50:]))  if len(closes) >= 50  else float(np.mean(closes))
+                ma200      = float(np.mean(closes[-200:])) if len(closes) >= 200 else float(np.mean(closes))
+
+                stock_data = {
+                    "ticker": ticker, "name": ticker, "source": "live",
+                    "price": price, "prev_close": prev_close, "change": change,
+                    "volume": volume, "avg_volume": avg_vol,
+                    "open": opens_[-1], "high": highs_[-1], "low": lows_[-1],
+                    "high52w": max(highs_), "low52w": min(lows_),
+                    "ma50": ma50, "ma200": ma200, "sector": get_sector(ticker)
+                }
+                hist = {"close": closes, "open": opens_, "high": highs_, "low": lows_, "volume": volumes_}
+                r = score_stock(stock_data, hist, _ihsg_closes, _sector_momentum, _rti_data)
+
+                if "chart_data" not in st.session_state:
+                    st.session_state["chart_data"] = {}
+                st.session_state["chart_data"][ticker] = df
+                results.append(r)
+            except Exception as e:
+                results.append(make_fallback(ticker, _ihsg_closes, _sector_momentum, _rti_data))
+    except Exception as e:
+        for t in tickers_list:
+            results.append(make_fallback(t, _ihsg_closes, _sector_momentum, _rti_data))
+    return results
+
+def make_fallback(ticker, ihsg_closes=None, sector_momentum=None, rti_data=None):
+    seed  = sum(ord(c) for c in ticker)
+    rng   = np.random.default_rng(seed)
+    price = round(rng.uniform(200, 6000) / 10) * 10
+    change= round(rng.uniform(-6, 8), 2)
+    n     = 120
+    prices   = [price * (1 + rng.uniform(-0.02, 0.02)) for _ in range(n)]
+    prices[-1] = price
+    highs_   = [p * rng.uniform(1.001, 1.03)  for p in prices]
+    lows_    = [p * rng.uniform(0.97, 0.999)  for p in prices]
+    volumes_ = [int(rng.uniform(500_000, 10_000_000)) for _ in range(n)]
+
+    stock_data = {
+        "ticker": ticker, "name": ticker, "source": "simulated",
+        "price": price, "prev_close": round(price / (1 + change / 100) / 10) * 10,
+        "change": change, "volume": volumes_[-1],
+        "avg_volume": int(np.mean(volumes_[-20:])),
+        "open": price, "high": highs_[-1], "low": lows_[-1],
+        "high52w": max(highs_), "low52w": min(lows_),
+        "ma50": float(np.mean(prices[-50:])), "ma200": float(np.mean(prices)),
+        "sector": get_sector(ticker)
+    }
+    hist = {"close": prices, "open": prices[:], "high": highs_, "low": lows_, "volume": volumes_}
+    return score_stock(stock_data, hist, ihsg_closes, sector_momentum, rti_data)
+
+# ============================================================
+# AI ANALYSIS dengan Groq
+# ============================================================
+def get_ai_analysis(stock, api_key):
+    try:
+        b   = stock.get("bandar", {})
+        f   = stock.get("foreign", {})
+        tp  = stock.get("trade_plan", {})
+        rs  = stock.get("rs_data", {})
+        pats = ", ".join([p["name"] for p in stock.get("patterns", [])[:3]]) or "Tidak ada"
+        sec_rank  = stock.get("sec_rank", 7)
+        sec_score = stock.get("sec_score", 50)
+
+        prompt = f"""Kamu adalah expert trader saham Indonesia spesialis SCALPING & DAY TRADING IDX.
+Saham: {stock['ticker']} | Sektor: {stock['sector']} (Rank #{sec_rank}/13, Score:{sec_score:.0f})
+Harga: Rp {stock['price']:,.0f} | Change: {stock['change']}%
+Volume: {stock['vol_ratio']}x rata-rata | Likuid: {'Ya' if stock.get('is_liquid') else 'Tidak'}
+RSI (Wilder): {stock['rsi']} | MACD: {stock['macd']:.4f} (hist:{stock['macd_hist']:.4f})
+Stoch K/D: {stock['stoch_k']}/{stock['stoch_d']} | ADX: {stock['adx']}
+BB Position: {stock['bb_pos']}% | Support: {stock.get('support','N/A')} | Resistance: {stock.get('resistance','N/A')}
+MA50: {'Di atas' if stock['above_ma50'] else 'Di bawah'} | MA200: {'Di atas' if stock['above_ma200'] else 'Di bawah'}
+52W Position: {stock['pos52w']}% | Wyckoff: {stock['wyckoff']}
+Bandarmologi: {b.get('fase','N/A')} | CMF: {b.get('cmf',0):.3f} | VWAP: {'Di atas' if b.get('above_vwap') else 'Di bawah'}
+A/D Line: {b.get('ad_trend','N/A')} | OBV: {b.get('obv_trend','N/A')} | Bandar Strength: {b.get('bandar_strength',50)}/100
+Foreign Flow: {f.get('flow_status','N/A')} | Net Flow: Rp {stock.get('net_foreign_flow',0):,.0f} | Source: {f.get('data_source','est')}
+Relative Strength vs IHSG: {rs.get('rs_score',50):.1f}/100 | RS 1M: {rs.get('rs_1m',0):+.2f}% | Trend: {rs.get('rs_trend','N/A')}
+Chart Pattern: {pats}
+Sinyal: {', '.join(stock['signals'][:5])}
+AI Score: {stock['score']}/100 ({stock['rating']}) | Konfirmasi: {stock['confirmations']}/10
+Trade Plan: Entry Rp {stock['price']:,.0f} | SL Rp {tp.get('sl',{}).get('recommended',0):,.0f} | TP1 Rp {tp.get('tp',{}).get('tp1',0):,.0f} | TP2 Rp {tp.get('tp',{}).get('tp2',0):,.0f}
+
+Berikan analisa TAJAM untuk scalping/day trade besok dalam Bahasa Indonesia dengan format MARKDOWN:
+
+## 🔍 VERDICT
+[1 kalimat tegas apakah layak beli/hindari]
+
+## 📊 TEKNIKAL
+- [RSI Wilder + MACD interpretation]
+- [Bandarmologi & Foreign Flow]
+- [Relative Strength vs IHSG]
+
+## 🏭 SEKTOR
+[kondisi sektor dan implikasinya]
+
+## 💰 RENCANA ENTRY
+- **Entry:** Rp X (kondisi: ...)
+- **TP1:** Rp X (+Y%)
+- **TP2:** Rp X (+Z%)
+- **Stop Loss:** Rp X (-W%)
+- **Risk/Reward:** 1:X
+
+## ⚠️ RISIKO
+[1-2 risiko spesifik]
+
+## ⏱️ TIPS SCALPING
+[timing masuk yang ideal]
+"""
+        models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
+        errors = []
+        for model in models_to_try:
+            try:
+                resp = requests.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                    json={"model": model,
+                          "messages": [{"role": "user", "content": prompt}],
+                          "max_tokens": 1000, "temperature": 0.7},
+                    timeout=30
+                )
+                d = resp.json()
+                if "choices" in d:
+                    return d["choices"][0]["message"]["content"]
+                err_msg = d.get("error", {}).get("message", str(d.get("error", "")))
+                errors.append(f"{model}: {err_msg[:80]}")
+                if "invalid_api_key" in str(d.get("error", "")) or resp.status_code == 401:
+                    return "⚠️ API Key Groq tidak valid! Daftar gratis di console.groq.com"
+            except Exception as e:
+                errors.append(f"{model}: {str(e)[:60]}")
+        return "⚠️ Gagal: " + " | ".join(errors)
+    except Exception as e:
+        return f"⚠️ Error: {e}"
+
+# ============================================================
+# ✅ IMPROVED BACKTEST ENGINE
+# Entry = OPEN hari berikutnya (realistis), bukan close sinyal
+# ============================================================
+def run_backtest(ticker, days=60, hold_days=10):
+    try:
+        df = yf.download(ticker + ".JK", period="1y", interval="1d",
+                         auto_adjust=True, progress=False)
+        if df is None or len(df) < days + 20:
+            return None
+        df = df.dropna()
+        closes = df["Close"].tolist()
+        opens  = df["Open"].tolist()
+        highs  = df["High"].tolist()
+        lows   = df["Low"].tolist()
+        vols   = df["Volume"].tolist()
+        dates  = df.index.tolist()
+
+        trades = []
+        i = 30
+        while i < len(closes) - hold_days - 1:
+            rsi    = calc_rsi_wilder(closes[:i + 1])
+            macd_v, _, macd_h = calc_macd_full(closes[:i + 1])
+            bb_pos, _, _ = calc_bb(closes[:i + 1])
+            vol_ratio = vols[i] / max(np.mean(vols[max(0, i - 20):i]), 1)
+
+            if rsi < 40 and macd_v > 0 and bb_pos < 35 and vol_ratio > 1.3:
+                # ✅ Entry di OPEN hari BERIKUTNYA (realistis!)
+                entry_idx  = i + 1
+                entry      = opens[entry_idx]
+                entry_date = dates[entry_idx]
+                sl         = entry * 0.95
+                tp1        = entry * 1.07
+                tp2        = entry * 1.15
+                outcome    = "TIMEOUT"
+                exit_price = closes[min(entry_idx + hold_days, len(closes) - 1)]
+                exit_date  = dates[min(entry_idx + hold_days, len(dates) - 1)]
+                days_held  = hold_days
+
+                for j in range(entry_idx + 1, min(entry_idx + hold_days + 1, len(closes))):
+                    if closes[j] >= tp2:
+                        outcome = "TP2"; exit_price = tp2; exit_date = dates[j]; days_held = j - entry_idx; break
+                    elif closes[j] >= tp1:
+                        outcome = "TP1"; exit_price = tp1; exit_date = dates[j]; days_held = j - entry_idx; break
+                    elif lows[j] <= sl:
+                        outcome = "SL";  exit_price = sl;  exit_date = dates[j]; days_held = j - entry_idx; break
+
+                trades.append({
+                    "entry_date": entry_date, "exit_date":  exit_date,
+                    "entry": entry, "exit_price": exit_price,
+                    "outcome": outcome,
+                    "pnl_pct": round((exit_price - entry) / entry * 100, 2),
+                    "days_held": days_held, "rsi": round(rsi, 1),
+                })
+                i = entry_idx + days_held + 1
+            else:
+                i += 1
+
+        if not trades:
+            return None
+
+        wins   = [t for t in trades if t["pnl_pct"] > 0]
+        losses = [t for t in trades if t["pnl_pct"] <= 0]
+        win_rate = round(len(wins) / len(trades) * 100, 1)
+        avg_win  = round(np.mean([t["pnl_pct"] for t in wins]),   2) if wins   else 0
+        avg_loss = round(np.mean([t["pnl_pct"] for t in losses]), 2) if losses else 0
+        profit_f = round(abs(avg_win * len(wins)) / max(abs(avg_loss * len(losses)), 0.01), 2)
+
+        return {
+            "ticker": ticker, "total_trades": len(trades),
+            "win_count": len(wins), "loss_count": len(losses),
+            "win_rate": win_rate,
+            "avg_pnl":  round(np.mean([t["pnl_pct"] for t in trades]), 2),
+            "avg_win": avg_win, "avg_loss": avg_loss,
+            "avg_days_held": round(np.mean([t["days_held"] for t in trades]), 1),
+            "best":    round(max(t["pnl_pct"] for t in trades), 2),
+            "worst":   round(min(t["pnl_pct"] for t in trades), 2),
+            "profit_factor": profit_f,
+            "tp_hit":  sum(1 for t in trades if "TP" in t["outcome"]),
+            "sl_hit":  sum(1 for t in trades if t["outcome"] == "SL"),
+            "trades":  trades[-20:],
+            "entry_method": "Next Day Open (Realistic)",
+        }
+    except Exception as e:
+        print(f"Backtest error: {e}")
+        return None
+
+def create_backtest_chart(bt_result):
+    if not bt_result or not bt_result.get("trades"):
+        return go.Figure()
+    trades = bt_result["trades"]
+    fig = make_subplots(rows=2, cols=1,
+                        subplot_titles=("Equity Curve", "Trade Distribution"),
+                        row_heights=[0.6, 0.4], vertical_spacing=0.1)
+    equity = [100]
+    dates  = [trades[0]["entry_date"]]
+    for t in trades:
+        equity.append(equity[-1] * (1 + t["pnl_pct"] / 100))
+        dates.append(t["exit_date"])
+    fig.add_trace(go.Scatter(x=dates, y=equity[1:], mode="lines", name="Equity",
+                             line=dict(color="#00ff88", width=2)), row=1, col=1)
+    pnls   = [t["pnl_pct"] for t in trades]
+    colors = ["#00ff88" if p > 0 else "#ff4444" for p in pnls]
+    fig.add_trace(go.Bar(x=list(range(len(trades))), y=pnls, marker_color=colors,
+                         name="P&L per Trade",
+                         text=[f"{p:+.1f}%" for p in pnls], textposition="outside"), row=2, col=1)
+    fig.update_layout(height=480, paper_bgcolor="#070711", plot_bgcolor="#0d0d1a",
+                      font=dict(color="#7a84a8", family="JetBrains Mono", size=10),
+                      showlegend=False, margin=dict(l=20, r=20, t=40, b=20))
+    for r in [1, 2]:
+        fig.update_xaxes(gridcolor="#1e1e36", zeroline=False, row=r, col=1)
+        fig.update_yaxes(gridcolor="#1e1e36", zeroline=False, row=r, col=1)
+    fig.update_yaxes(title_text="Equity", row=1, col=1)
+    fig.update_xaxes(title_text="Trade #", row=2, col=1)
+    return fig
+
+# ============================================================
 # HELPER FUNCTIONS
-# ════════════════════════════════════════════════════════════
-def parse_tickers(raw: str) -> list:
-    tickers = [t.strip().upper() for t in raw.replace('\n', ',').split(',') if t.strip()]
+# ============================================================
+def parse_tickers(raw_text):
+    tickers = [t.strip().upper() for t in raw_text.replace("\n", ",").split(",") if t.strip()]
     return list(dict.fromkeys(tickers))
 
+def fmt_price(p):
+    return f"Rp {p:,.0f}"
 
-def metric_card(col, label: str, value, color: str = "#e6edf3"):
+def rating_icon(rating):
+    return {"🔥 SUPER BUY": "🔥", "STRONG BUY": "🟢", "BUY": "🟩",
+            "WATCH": "🟡", "NEUTRAL": "🟠", "AVOID": "🔴"}.get(rating, "⚪")
+
+def metric_card(col, label, value, color="#e0e8ff"):
     with col:
         st.markdown(f"""
         <div class='metric-box'>
-            <div style='color:#8b949e; font-size:0.78rem;'>{label}</div>
-            <div style='color:{color}; font-size:1.4rem; font-weight:bold;'>{value}</div>
-        </div>""", unsafe_allow_html=True)
-
-
-def render_score_bar(score: int, color: str):
-    st.markdown(f"""
-    <div style='display:flex; align-items:center; gap:10px; margin:6px 0;'>
-        <div style='flex:1; background:#30363d; border-radius:8px; height:10px; overflow:hidden;'>
-            <div style='width:{score}%; background:{color}; height:100%; border-radius:8px;'></div>
+            <div class='metric-label'>{label}</div>
+            <div class='metric-val' style='color:{color}'>{value}</div>
         </div>
-        <span style='color:{color}; font-weight:bold; min-width:55px;'>{score}/100</span>
-    </div>""", unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
+def create_chart(df, ticker, trade_plan, timeframe="3 Bulan"):
+    if df is None or len(df) < 10:
+        return None
+    df = df.tail(60).copy()
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
 
-def render_signal_row(name: str, signal: dict):
-    icon  = "✅" if signal['status'] else "❌"
-    color = "#00ff88" if signal['status'] else "#8b949e"
-    pts   = signal.get('points', 0)
-    st.markdown(f"""
-    <div class='info-row'>
-        <span style='color:#8b949e;'>{icon} {name}</span>
-        <span>
-            <span style='color:{color}; font-size:0.85rem;'>{signal['value']}</span>
-            <span style='color:#ffd700; font-size:0.8rem; margin-left:8px;'>+{pts}pts</span>
-        </span>
-    </div>""", unsafe_allow_html=True)
+    closes  = df["Close"].tolist()
+    opens_  = df["Open"].tolist()
+    highs_  = df["High"].tolist()
+    lows_   = df["Low"].tolist()
+    volumes = df["Volume"].tolist()
+    dates   = df.index.tolist()
 
+    ma20 = [float(np.mean(closes[max(0, i - 20):i + 1])) for i in range(len(closes))]
+    ma50 = [float(np.mean(closes[max(0, i - 50):i + 1])) for i in range(len(closes))]
+    # ✅ RSI Wilder di chart
+    rsi_values = [calc_rsi_wilder(closes[:i + 1]) for i in range(len(closes))]
+    vol_colors = ["rgba(0,232,122,0.45)" if c >= o else "rgba(255,61,90,0.45)"
+                  for c, o in zip(closes, opens_)]
 
-def create_chart(df, ticker, trade_plan, timeframe="3 Bulan",
-                  show_fib=False, show_trendline=False) -> go.Figure:
-    """Wrapper: gunakan create_upgraded_chart dengan opsi advanced."""
-    return create_upgraded_chart(df, ticker, trade_plan,
-                                  timeframe=timeframe,
-                                  show_fib=show_fib,
-                                  show_trendline=show_trendline)
+    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.03,
+                        row_heights=[0.55, 0.15, 0.30],
+                        subplot_titles=("", "VOLUME", "RSI (14) — Wilder's"))
 
+    fig.add_trace(go.Candlestick(
+        x=dates, open=opens_, high=highs_, low=lows_, close=closes, name=ticker,
+        increasing_line_color="#00e87a", decreasing_line_color="#ff3d5a",
+        increasing_fillcolor="rgba(0,232,122,0.3)", decreasing_fillcolor="rgba(255,61,90,0.3)",
+        increasing_line_width=1.2, decreasing_line_width=1.2, showlegend=False
+    ), row=1, col=1)
+    fig.add_trace(go.Scatter(x=dates, y=ma20, name="MA20",
+                             line=dict(color="#f5c842", width=1.3)), row=1, col=1)
+    fig.add_trace(go.Scatter(x=dates, y=ma50, name="MA50",
+                             line=dict(color="#00c8ff", width=1.3, dash="dot")), row=1, col=1)
+    fig.add_trace(go.Bar(x=dates, y=volumes, marker_color=vol_colors,
+                         opacity=0.7, showlegend=False), row=2, col=1)
+    fig.add_trace(go.Scatter(x=dates, y=rsi_values, name="RSI",
+                             line=dict(color="#9b6dff", width=1.5), showlegend=False), row=3, col=1)
 
-def export_to_csv(results: list, trade_plans: dict) -> bytes:
+    for rsi_lvl, rsi_col in [(70, "#ff3d5a"), (30, "#00e87a")]:
+        fig.add_shape(type="line", x0=0, x1=1, xref="paper",
+                      y0=rsi_lvl, y1=rsi_lvl, yref="y3",
+                      line=dict(color=rsi_col, width=1, dash="dash"))
+    fig.add_shape(type="rect", x0=0, x1=1, xref="paper", y0=0, y1=30, yref="y3",
+                  fillcolor="rgba(0,232,122,0.04)", line=dict(width=0), layer="below")
+    fig.add_shape(type="rect", x0=0, x1=1, xref="paper", y0=70, y1=100, yref="y3",
+                  fillcolor="rgba(255,61,90,0.04)", line=dict(width=0), layer="below")
+
+    entry_price = closes[-1]
+    fig.add_shape(type="line", x0=0, x1=1, xref="paper",
+                  y0=entry_price, y1=entry_price, yref="y",
+                  line=dict(color="rgba(255,255,255,0.5)", width=1, dash="dot"))
+    fig.add_annotation(x=1.01, y=entry_price, xref="paper", yref="y",
+                       text=f"ENTRY<br>{entry_price:,.0f}", showarrow=False, xanchor="left",
+                       font=dict(color="#cccccc", size=9, family="JetBrains Mono"),
+                       bgcolor="rgba(7,7,17,0.85)", bordercolor="#444466", borderwidth=1, borderpad=4)
+
+    if trade_plan:
+        price_now = closes[-1]
+        levels = [
+            (trade_plan.get("sl", {}).get("recommended"), "#ff3d5a", "SL ▼"),
+            (trade_plan.get("tp", {}).get("tp1"),          "#f5c842", "TP1 ▲"),
+            (trade_plan.get("tp", {}).get("tp2"),          "#00e87a", "TP2 ▲"),
+        ]
+        for level, color, label in levels:
+            if not level or level <= 0: continue
+            pct = (level - price_now) / price_now * 100
+            fig.add_shape(type="line", x0=0, x1=1, xref="paper",
+                          y0=level, y1=level, yref="y",
+                          line=dict(color=color, width=1.5, dash="dash"))
+            fig.add_annotation(x=1.01, y=level, xref="paper", yref="y",
+                               text=f"{label}<br>{level:,.0f} ({pct:+.1f}%)",
+                               showarrow=False, xanchor="left",
+                               font=dict(color=color, size=9, family="JetBrains Mono"),
+                               bgcolor="rgba(7,7,17,0.85)", bordercolor=color, borderwidth=1, borderpad=4)
+
+    fig.update_layout(
+        paper_bgcolor="#070711", plot_bgcolor="#0d0d1a",
+        font=dict(color="#7a84a8", size=10, family="JetBrains Mono"),
+        margin=dict(l=10, r=90, t=28, b=10), height=480,
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.4,
+                    font=dict(size=9), bgcolor="rgba(0,0,0,0)"),
+        hovermode="x unified", xaxis_rangeslider_visible=False
+    )
+    axis_style = dict(gridcolor="#1a1a2e", showgrid=True,
+                      tickfont=dict(size=9, family="JetBrains Mono"),
+                      zeroline=False, linecolor="#1e1e36", showline=True)
+    for r in [1, 2, 3]:
+        fig.update_xaxes(**axis_style, row=r, col=1)
+        fig.update_yaxes(**axis_style, row=r, col=1)
+    for ann in fig.layout.annotations:
+        ann.font = dict(size=9, color="#3a3f5c", family="JetBrains Mono")
+    return fig
+
+def export_to_csv(stocks_list):
     rows = []
-    for r in results:
-        ticker = r['ticker']
-        tp = trade_plans.get(ticker, {})
+    for s in stocks_list:
+        tp = s.get("trade_plan", {})
+        b  = s.get("bandar", {})
+        f  = s.get("foreign", {})
         rows.append({
-            'Tanggal': datetime.now().strftime('%Y-%m-%d %H:%M'),
-            'Ticker': ticker, 'Kategori': r['category'], 'Skor': r['score'],
-            'Harga': r['close'], 'Volume Ratio': r['volume_ratio'], 'RSI': r['rsi'],
-            'Entry': r['close'],
-            'SL': tp.get('sl', {}).get('recommended', ''),
-            'TP1': tp.get('tp', {}).get('tp1', ''), 'TP2': tp.get('tp', {}).get('tp2', ''),
-            'TP3': tp.get('tp', {}).get('tp3', ''),
-            'Risk %': tp.get('sl', {}).get('risk_pct', ''),
-            'Max Lot': tp.get('position', {}).get('lot', ''),
+            "Tanggal":         datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "Ticker":          s.get("ticker", ""),
+            "Sektor":          s.get("sector", ""),
+            "Score":           s.get("score", 0),
+            "Rating":          s.get("rating", ""),
+            "Konfirmasi":      s.get("confirmations", 0),
+            "Harga":           s.get("price", 0),
+            "Change%":         s.get("change", 0),
+            "Volume_Ratio":    s.get("vol_ratio", 0),
+            "RSI_Wilder":      s.get("rsi", 0),
+            "MACD":            s.get("macd", 0),
+            "MACD_Hist":       s.get("macd_hist", 0),
+            "ADX":             s.get("adx", 0),
+            "BB_Pos":          s.get("bb_pos", 0),
+            "Wyckoff":         s.get("wyckoff", ""),
+            "Bandar_Fase":     b.get("fase", ""),
+            "CMF":             round(b.get("cmf", 0), 4),
+            "Bandar_Strength": b.get("bandar_strength", 50),
+            "Foreign_Status":  f.get("flow_status", ""),
+            "Foreign_Source":  s.get("foreign_data_source","estimated"),
+            "Net_Foreign_Flow":s.get("net_foreign_flow", 0),
+            "RS_Score":        s.get("rs_score", 50),
+            "RS_vs_IHSG":      s.get("rs_ratio", 1.0),
+            "RS_1M_pct":       s.get("rs_1m", 0),
+            "RS_3M_pct":       s.get("rs_3m", 0),
+            "Sector_Rank":     s.get("sec_rank", 7),
+            "Sector_Score":    s.get("sec_score", 50),
+            "Entry":           s.get("price", 0),
+            "SL":              tp.get("sl", {}).get("recommended", 0),
+            "Risk%":           tp.get("sl", {}).get("risk_pct", 0),
+            "TP1":             tp.get("tp", {}).get("tp1", 0),
+            "TP1%":            tp.get("tp", {}).get("tp1_pct", 0),
+            "TP2":             tp.get("tp", {}).get("tp2", 0),
+            "TP2%":            tp.get("tp", {}).get("tp2_pct", 0),
+            "RR":              tp.get("tp", {}).get("rr", 0),
+            "MaxLot":          tp.get("position", {}).get("lot", 1),
         })
-    return pd.DataFrame(rows).to_csv(index=False).encode('utf-8')
+    return pd.DataFrame(rows).to_csv(index=False).encode("utf-8")
 
+# ============================================================
+# WATCHLIST & PORTFOLIO
+# ============================================================
+def get_watchlist():
+    if "watchlist" not in st.session_state: st.session_state.watchlist = {}
+    return st.session_state.watchlist
 
-def run_scan(tickers: list, modal: float, prog=None,
-             enable_ml: bool = False, enable_pattern: bool = True,
-             enable_sentiment: bool = False) -> tuple:
-    results, trade_plans = [], {}
-    ml_results, pattern_results, sentiment_results = {}, {}, {}
+def add_to_watchlist(ticker, note="", alert_price=None, scan_result=None):
+    wl = get_watchlist()
+    wl[ticker] = {
+        "added_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "note": note, "alert_price": alert_price,
+        "last_score":    scan_result.get("score")    if scan_result else None,
+        "last_price":    scan_result.get("price")    if scan_result else None,
+        "last_category": scan_result.get("category") if scan_result else None,
+    }
+    st.session_state.watchlist = wl
 
-    for i, ticker in enumerate(tickers):
-        if prog:
-            prog.progress((i+1)/len(tickers), f"📡 {ticker} ({i+1}/{len(tickers)})...")
+def remove_from_watchlist(ticker):
+    wl = get_watchlist()
+    if ticker in wl:
+        del wl[ticker]
+        st.session_state.watchlist = wl
 
-        df = fetch_stock_data(ticker)
-        if df is None:
-            continue
+def get_portfolio():
+    if "portfolio" not in st.session_state: st.session_state.portfolio = []
+    return st.session_state.portfolio
 
-        result = score_stock(df)
-        if result:
-            result['ticker'] = ticker
-            results.append(result)
-            trade_plans[ticker] = get_full_trade_plan(
-                result['close'], result['atr'], result['support'], modal,
-                adx             = result.get('adx', 0),
-                bandar_fase     = result.get('bandar_fase', ''),
-                bandar_strength = result.get('bandar_strength', 50),
-                cmf             = result.get('cmf', 0),
+def get_closed_trades():
+    if "closed_trades" not in st.session_state: st.session_state.closed_trades = []
+    return st.session_state.closed_trades
+
+def add_position(ticker, lot, entry_price, sl=None, tp=None, note=""):
+    portfolio = get_portfolio()
+    portfolio.append({
+        "ticker": ticker, "lot": lot, "lembar": lot * 100,
+        "entry": entry_price, "curr": entry_price, "sl": sl, "tp": tp,
+        "note": note, "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "modal": lot * 100 * entry_price,
+    })
+    st.session_state.portfolio = portfolio
+
+def close_position(ticker, exit_price):
+    portfolio = get_portfolio()
+    closed    = get_closed_trades()
+    for i, pos in enumerate(portfolio):
+        if pos["ticker"] == ticker:
+            pnl_rp  = (exit_price - pos["entry"]) * pos["lembar"]
+            pnl_pct = round(pnl_rp / pos["modal"] * 100, 2)
+            closed.append({**pos, "exit": exit_price,
+                           "exit_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                           "pnl_rp": pnl_rp, "pnl_pct": pnl_pct,
+                           "outcome": "WIN" if pnl_pct > 0 else "LOSS"})
+            portfolio.pop(i)
+            st.session_state.portfolio     = portfolio
+            st.session_state.closed_trades = closed
+            return {"pnl_rp": pnl_rp, "pnl_pct": pnl_pct}
+    return None
+
+def get_portfolio_summary(current_prices={}):
+    portfolio = get_portfolio()
+    for pos in portfolio:
+        if pos["ticker"] in current_prices:
+            pos["curr"] = current_prices[pos["ticker"]]
+    total_modal = sum(p["modal"] for p in portfolio)
+    total_value = sum(p["lot"] * 100 * p["curr"] for p in portfolio)
+    total_pnl   = total_value - total_modal
+    total_pnl_pct = round(total_pnl / total_modal * 100, 2) if total_modal > 0 else 0
+    return {"total_modal": total_modal, "total_value": total_value,
+            "total_pnl": total_pnl, "total_pnl_pct": total_pnl_pct, "positions": portfolio}
+
+def get_portfolio_stats():
+    closed = get_closed_trades()
+    if not closed:
+        return {"total_trades": 0, "win_rate": 0, "best_trade": 0,
+                "worst_trade": 0, "avg_pnl": 0, "profit_factor": 0}
+    wins   = [t for t in closed if t["outcome"] == "WIN"]
+    losses = [t for t in closed if t["outcome"] == "LOSS"]
+    avg_win  = np.mean([t["pnl_pct"] for t in wins])   if wins   else 0
+    avg_loss = abs(np.mean([t["pnl_pct"] for t in losses])) if losses else 0
+    return {
+        "total_trades": len(closed), "win_count": len(wins), "loss_count": len(losses),
+        "win_rate": round(len(wins) / len(closed) * 100, 1),
+        "best_trade": max(t["pnl_pct"] for t in closed),
+        "worst_trade": min(t["pnl_pct"] for t in closed),
+        "avg_pnl": round(np.mean([t["pnl_pct"] for t in closed]), 2),
+        "profit_factor": round(avg_win * len(wins) / max(avg_loss * len(losses), 0.01), 2),
+    }
+
+# ============================================================
+# SCAN FUNCTION
+# ============================================================
+def run_scan(tickers_list, progress_bar=None, ihsg_closes=None,
+             sector_momentum=None, rti_data=None):
+    results    = []
+    total      = len(tickers_list)
+    batch_size = 10
+    for i in range(0, total, batch_size):
+        batch = tickers_list[i:i + batch_size]
+        if progress_bar:
+            progress_bar.progress(
+                min((i + len(batch)) / total, 1.0),
+                f"Scanning {i+1}-{min(i+len(batch),total)}/{total}..."
             )
+        results.extend(fetch_batch(batch, ihsg_closes, sector_momentum, rti_data))
+        time.sleep(0.1)
+    results.sort(key=lambda x: x.get("score", 0), reverse=True)
+    return results
 
-            # 🆕 Chart Pattern Recognition
-            if enable_pattern:
-                try:
-                    pattern_results[ticker] = analyze_patterns(df)
-                except Exception as e:
-                    print(f"[APP] Pattern error {ticker}: {e}")
-
-            # 🆕 AI Confidence
-            if enable_ml and SKLEARN_AVAILABLE:
-                try:
-                    ml_results[ticker] = predict_confidence(
-                        ticker, df, st.session_state['ml_cache'])
-                except Exception as e:
-                    print(f"[APP] ML error {ticker}: {e}")
-
-            # 🆕 News Sentiment
-            if enable_sentiment:
-                try:
-                    sentiment_results[ticker] = analyze_news_sentiment(ticker)
-                except Exception as e:
-                    print(f"[APP] Sentiment error {ticker}: {e}")
-
-        time.sleep(0.05)
-
-    results.sort(key=lambda x: x['score'], reverse=True)
-    return results, trade_plans, ml_results, pattern_results, sentiment_results
-
-
-# ════════════════════════════════════════════════════════════
-# ─── APP4 INIT SESSION ───────────────────────
+# ============================================================
+# SESSION STATE INITIALIZATION
+# ============================================================
+def init_session_state():
     default_groq_key = (os.environ.get("GROQ_API_KEY", "") or
                         os.environ.get("AnalisaSahamIndonesia", ""))
     defaults = {
@@ -4670,2809 +12333,1214 @@ def run_scan(tickers: list, modal: float, prog=None,
 # ============================================================
 # MAIN APP
 # ============================================================
-# ─── SAHAM SCANNER PRO 955 SAHAM ──────────────────────────────
-DEFAULT_SAHAM_IDX_955 = [
-    "AADI.JK","AALI.JK","ABBA.JK","ABDA.JK","ABMM.JK","ACES.JK","ACRO.JK","ACST.JK",
-    "ADES.JK","ADHI.JK","ADMF.JK","ADRO.JK","ANTM.JK","APEX.JK","APII.JK","APLN.JK",
-    "ARNA.JK","ARTO.JK","ASII.JK","ASRI.JK","ASRM.JK","ASSA.JK","AUTO.JK","AVIA.JK",
-    "BABP.JK","BBCA.JK","BBHI.JK","BBKP.JK","BBMD.JK","BBNI.JK","BBRI.JK","BBTN.JK",
-    "BDMN.JK","BEKS.JK","BEST.JK","BFIN.JK","BHIT.JK","BIRD.JK","BISI.JK","BJBR.JK",
-    "BJTM.JK","BKSL.JK","BMRI.JK","BMTR.JK","BNGA.JK","BNII.JK","BOLT.JK","BRAM.JK",
-    "BREN.JK","BRIS.JK","BRMS.JK","BRPT.JK","BSDE.JK","BSSR.JK","BTPS.JK","BUDI.JK",
-    "BUKA.JK","BUMI.JK","BYAN.JK","CAMP.JK","CASS.JK","CDIA.JK","CEKA.JK","CINT.JK",
-    "CLEO.JK","CMRY.JK","COIN.JK","CPIN.JK","CPRO.JK","CSAP.JK","CTRA.JK","CUAN.JK",
-    "DART.JK","DILD.JK","DKFT.JK","DLTA.JK","DMAS.JK","DNET.JK","DOID.JK","DPNS.JK",
-    "DSNG.JK","DSSA.JK","DUTI.JK","DVLA.JK","EKAD.JK","ELSA.JK","EMTK.JK","ENRG.JK",
-    "EPMT.JK","ERAA.JK","ESSA.JK","EXCL.JK","FAST.JK","FASW.JK","FILM.JK","FISH.JK",
-    "FMII.JK","FOOD.JK","FPNI.JK","FREN.JK","GAMA.JK","GDST.JK","GEMS.JK","GGRM.JK",
-    "GIAA.JK","GJTL.JK","GLOB.JK","GOOD.JK","GOTO.JK","GPRA.JK","GWSA.JK","GZCO.JK",
-    "HEAL.JK","HEXA.JK","HMSP.JK","HOKI.JK","HRTA.JK","HRUM.JK","ICBP.JK","IGAR.JK",
-    "IKAI.JK","IMAS.JK","IMPC.JK","INAF.JK","INAI.JK","INCI.JK","INCO.JK","INDF.JK",
-    "INDR.JK","INDS.JK","INDY.JK","INET.JK","INKP.JK","INPC.JK","INTP.JK","IPCM.JK",
-    "IPOL.JK","ISAT.JK","ISSP.JK","ITMG.JK","JAYA.JK","JECC.JK","JKON.JK","JPFA.JK",
-    "JRPT.JK","JSMR.JK","KAEF.JK","KBLI.JK","KBLM.JK","KEEN.JK","KEJU.JK","KIAS.JK",
-    "KIJA.JK","KINO.JK","KLBF.JK","KOTA.JK","KPIG.JK","KRAS.JK","LABA.JK","LAND.JK",
-    "LEAD.JK","LION.JK","LMPI.JK","LPCK.JK","LPKR.JK","LPPF.JK","LSIP.JK","LTLS.JK",
-    "MAIN.JK","MAPI.JK","MARK.JK","MAYA.JK","MBAP.JK","MBMA.JK","MCAS.JK","MCOR.JK",
-    "MDKA.JK","MEDC.JK","MEGA.JK","MERK.JK","MIKA.JK","MINA.JK","MKPI.JK","MLBI.JK",
-    "MLIA.JK","MMLP.JK","MNCN.JK","MORA.JK","MPMX.JK","MREI.JK","MSKY.JK","MTDL.JK",
-    "MTEL.JK","MTFN.JK","MTLA.JK","MYOR.JK","NELY.JK","NEST.JK","NISP.JK","NOBU.JK",
-    "NRCA.JK","NUSA.JK","OKAS.JK","OMRE.JK","PALM.JK","PANI.JK","PBRX.JK","PBSA.JK",
-    "PDES.JK","PEHA.JK","PGAS.JK","PGEO.JK","PICO.JK","PJAA.JK","PLAN.JK","PLIN.JK",
-    "PNBN.JK","PNIN.JK","PNLF.JK","POIN.JK","POOL.JK","PORT.JK","POWR.JK","PPRO.JK",
-    "PRAY.JK","PRDA.JK","PSAB.JK","PSDN.JK","PTBA.JK","PTPP.JK","PTRO.JK","PTSN.JK",
-    "PUDP.JK","PWON.JK","PYFA.JK","RAJA.JK","RALS.JK","RCCC.JK","RDTX.JK","RICY.JK",
-    "RIGS.JK","ROCK.JK","RODA.JK","ROTI.JK","RUIS.JK","SAME.JK","SAMF.JK","SCCO.JK",
-    "SCMA.JK","SCPI.JK","SDRA.JK","SGRO.JK","SHIP.JK","SIDO.JK","SILO.JK","SIMP.JK",
-    "SIPD.JK","SKBM.JK","SKLT.JK","SLIS.JK","SMAR.JK","SMBR.JK","SMCB.JK","SMDR.JK",
-    "SMGR.JK","SMMA.JK","SMRA.JK","SMSM.JK","SOCI.JK","SOHO.JK","SPMA.JK","SPTO.JK",
-    "SRSN.JK","SRTG.JK","SSIA.JK","SSMS.JK","STAR.JK","STAA.JK","STTP.JK","SUGI.JK",
-    "SULI.JK","SUPR.JK","TALF.JK","TAPG.JK","TARA.JK","TBIG.JK","TBLA.JK","TBMS.JK",
-    "TCID.JK","TEBE.JK","TECH.JK","TFCO.JK","TGKA.JK","TIFA.JK","TINS.JK","TIRT.JK",
-    "TKIM.JK","TLKM.JK","TOBA.JK","TOTL.JK","TOTO.JK","TOWR.JK","TPIA.JK","TRIM.JK",
-    "TRIS.JK","TRST.JK","TSPC.JK","TUGU.JK","ULTJ.JK","UNIC.JK","UNIT.JK","UNTR.JK",
-    "UNVR.JK","VAST.JK","VOKS.JK","WIIM.JK","WIKA.JK","WINS.JK","WOMF.JK","WOOD.JK",
-    "WSBP.JK","WSKT.JK","WTON.JK","YPAS.JK","YUPI.JK","ZINC.JK","ZYRX.JK",
-]
-
-def parse_stock_file(f):
-    try:
-        tickers = re.split(r"[,\s\n\t]+", f.read().decode("utf-8"))
-        clean = []
-        for t in tickers:
-            t = t.strip().upper().replace(".JK","")
-            if t and len(t)<=5 and t.isalpha() and t+".JK" not in clean:
-                clean.append(t+".JK")
-        return clean
-    except: return []
-
-def calc_volatility(df):
-    if df is None or len(df)<3: return None
-    df = df.copy(); df["R"] = df["Close"].pct_change()
-    return {"vol":df["R"].std()*np.sqrt(252)*100,"avg_vol":df["Volume"].mean(),
-            "chg5d":(df["Close"].iloc[-1]/df["Close"].iloc[0]-1)*100,
-            "price":df["Close"].iloc[-1],"high5":df["High"].max(),"low5":df["Low"].min()}
-
-# ─── SIDEBAR ──────────────────────────────────────────────────
-def build_sidebar():
-    cfg = {}
-    with st.sidebar:
-        tz = pytz.timezone("Asia/Jakarta"); now = datetime.now(tz)
-        h = now.hour; wd = now.weekday()
-        is_open = wd<5 and ((h==9) or (10<=h<=14) or (h==15 and now.minute<=30))
-        mc = "#00ff88" if is_open else "#ff4444"
-        mt = "🟢 BUKA" if is_open else "🔴 TUTUP"
-        st.markdown(f"""
-        <div style='padding:12px 0 8px 0;border-bottom:1px solid #21262d;margin-bottom:12px;'>
-          <div style='font-size:1.05rem;font-weight:700;color:#e6edf3;'>📊 Trading Suite</div>
-          <div style='font-size:.65rem;color:#484f58;font-family:JetBrains Mono,monospace;letter-spacing:1.5px;text-transform:uppercase;'>Unified · IDX + Forex</div>
-        </div>
-        <div style='font-family:JetBrains Mono,monospace;font-size:.7rem;color:{mc};padding:5px 10px;background:rgba(0,0,0,.3);border:1px solid {mc}44;border-radius:20px;text-align:center;margin-bottom:12px;letter-spacing:1px;font-weight:700;'>
-          IDX {mt} · {now.strftime("%H:%M")} WIB
-        </div>""", unsafe_allow_html=True)
-
-        st.markdown("<p style='color:#484f58;font-size:.65rem;letter-spacing:2px;text-transform:uppercase;font-family:JetBrains Mono,monospace;margin:0 0 6px 0;'>▸ MODE SCANNER</p>", unsafe_allow_html=True)
-        mode = st.radio("mode", [
-            "🚀 Breakout IDX","📈 Open=Low IDX","🔍 Low Float IDX",
-            "🚨 Bid>Offer & Volatility","🎯 SNIPER FX",
-        ], label_visibility="collapsed",
-        index=["🚀 Breakout IDX","📈 Open=Low IDX","🔍 Low Float IDX",
-               "🚨 Bid>Offer & Volatility","🎯 SNIPER FX"].index(
-               st.session_state.get("_mode","🚀 Breakout IDX")))
-        st.session_state["_mode"] = mode
-        st.divider()
-
-        if "IDX" in mode and "Bid>Offer" not in mode:
-            ftype = st.radio("Filter", ["Semua","Manual","Tingkatan","Sektor"],
-                             label_visibility="collapsed")
-            if ftype=="Manual":
-                cfg["tickers"] = st.multiselect("Saham", ALL_TICKERS,
-                    default=st.session_state.get("_tickers",["BBCA","BBRI","BMRI"])[:10])
-            elif ftype=="Tingkatan":
-                lvls = st.multiselect("Tingkatan",["💎 Blue Chip","📈 Second Liner","🎯 Third Liner"],
-                                      default=["💎 Blue Chip","📈 Second Liner"])
-                tl=[]
-                if "Blue Chip" in str(lvls):    tl+=BLUE_CHIP_STOCKS
-                if "Second Liner" in str(lvls): tl+=SECOND_LINER_STOCKS
-                if "Third Liner" in str(lvls):  tl+=[t for t in ALL_TICKERS if t not in BLUE_CHIP_STOCKS+SECOND_LINER_STOCKS]
-                cfg["tickers"]=list(dict.fromkeys(tl))
-            elif ftype=="Sektor":
-                sektors=sorted(set(SECTOR_DATA.values()))
-                sel=st.selectbox("Sektor",sektors)
-                cfg["tickers"]=[t for t,s in SECTOR_DATA.items() if s==sel]
-                st.caption(f"{len(cfg['tickers'])} saham")
-            else:
-                cfg["tickers"]=ALL_TICKERS
-            st.divider()
-            if "Breakout" in mode:
-                cfg["enable_rs"]        = st.toggle("📈 RS vs IHSG",    value=True)
-                cfg["enable_pattern"]   = st.toggle("📊 Chart Pattern", value=True)
-                cfg["enable_ml"]        = st.toggle("🤖 AI Confidence", value=False)
-                cfg["enable_sentiment"] = st.toggle("📰 News Sentiment",value=False)
-                cfg["enable_foreign"]   = st.toggle("🌏 Foreign Flow",  value=False)
-                st.divider()
-            if "Open=Low" in mode:
-                cfg["min_gain"]    = st.slider("Min Kenaikan (%)",1.0,20.0,5.0,.5)
-                cfg["use_parallel"]= st.checkbox("⚡ Parallel Scan",value=True)
-            if "Low Float" in mode:
-                cfg["max_ff"]      = st.slider("Max Free Float (%)",5.0,40.0,20.0,1.0)
-                cfg["use_parallel"]= st.checkbox("⚡ Parallel Scan",value=True)
-            cfg["modal"] = st.number_input("💰 Modal (Rp)",1_000_000,1_000_000_000,10_000_000,1_000_000,format="%d")
-
-        if "Bid>Offer" in mode:
-            uf = st.file_uploader("📁 Upload .txt (opsional)",type=["txt"])
-            if uf:
-                custom=parse_stock_file(uf)
-                if custom:
-                    st.session_state["_custom955"]=custom
-                    st.success(f"✅ {len(custom)} saham")
-            src=st.session_state.get("_custom955",DEFAULT_SAHAM_IDX_955)
-            st.caption(f"Database: {len(src)} saham")
-            cfg["mode_a6"]  = st.radio("Sub-mode",["Bid>Offer","Volatility","Keduanya"],index=2,label_visibility="collapsed")
-            cfg["vol_thr"]  = st.slider("Min Volatility (%)",5.0,100.0,25.0,5.0)
-            cfg["max_scan"] = st.slider("Max saham di-scan",10,min(len(src),955),100,10)
-            cfg["min_price"]= st.number_input("Harga Min (Rp)",value=0,step=50)
-            cfg["max_price"]= st.number_input("Harga Max (Rp)",value=999999,step=50)
-            cfg["min_volume"]= st.number_input("Min Volume (lot)",value=0,step=1000)
-
-        if "SNIPER FX" in mode:
-            cfg["fx_pairs"]   = st.multiselect("Pasangan",list(ALL_PAIRS.keys()),default=list(ALL_PAIRS.keys())[:8])
-            cfg["fx_minscore"]= st.slider("Min Score",40,90,60,5)
-
-        st.divider()
-
-        if st.button("↺ Reset",use_container_width=True):
-            for k in ["stocks","ihsg_closes","sector_momentum","rti_data","_a6_bid","_a6_vol","_a6_scanned"]:
-                st.session_state.pop(k,None)
-            st.rerun()
-    return mode, cfg
-
-# ─── MAIN ─────────────────────────────────────────────────────
 def main():
     init_session_state()
-    for k,v in {"results":[],"trade_plans":{},"ml_results":{},"pattern_results":{},
-                "sentiment_results":{},"last_scan_time":None,"auto_refresh":False,
-                "scan_count":0,"modal":10_000_000,"groq_api_key":"",
-                "_tickers":["BBCA","BBRI","BMRI","TLKM","ASII"],"_mode":"🚀 Breakout IDX",
-                "_watchlist":{},"_portfolio":[],"_closed_trades":[]}.items():
-        if k not in st.session_state: st.session_state[k]=v
+    mkt = get_market_status()
 
-    mode, cfg = build_sidebar()
-    tz=pytz.timezone("Asia/Jakarta"); now=datetime.now(tz)
+    st.markdown("<h1>⚡ AKSARA IDX</h1>", unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style='display:flex;gap:16px;align-items:center;margin-top:-4px;margin-bottom:18px;
+    padding-bottom:12px;border-bottom:1px solid var(--border)'>
+        <span style='display:inline-flex;align-items:center;gap:5px;background:rgba(0,0,0,0.3);
+        border:1px solid {mkt["status_color"]}55;border-radius:20px;padding:3px 12px;
+        font-family:"JetBrains Mono",monospace;font-size:0.65rem;color:{mkt["status_color"]};
+        font-weight:700;letter-spacing:1px'>{mkt["status_text"]}</span>
+        <span style='font-family:"JetBrains Mono",monospace;font-size:0.65rem;color:var(--text-muted)'>
+            {mkt["date_str"]} · {mkt["time_str"]} WIB
+        </span>
+        <span style='font-family:"JetBrains Mono",monospace;font-size:0.6rem;color:var(--text-muted);
+        letter-spacing:1.5px;text-transform:uppercase'>
+            v2.0 · RSI WILDER · MACD FIX · FOREIGN REAL · RS vs IHSG · SECTOR MOMENTUM
+        </span>
+    </div>
+    """, unsafe_allow_html=True)
 
-    if "SNIPER FX" in mode:
+    # ── Sidebar ───────────────────────────────────────────────
+    with st.sidebar:
+        st.markdown("### ⚙️ SETTINGS")
 
-        # HEADER
-        # ============================================================
+        _mkt = get_market_status()
+        _quotes = [
+            ("📈 Pasar selalu benar.", "Ego yang salah."),
+            ("🙏 Berdoa dulu,", "baru trading, bro!"),
+            ("💡 Cut loss itu", "bukan kalah — itu bijak."),
+            ("🧘 Trading tenang,", "profit datang."),
+            ("⚠️ Jangan FOMO!", "Saham bagus selalu ada."),
+            ("💰 Protect modal =", "protect masa depan."),
+            ("🎯 Satu setup bagus", "lebih baik dari 10 gambling."),
+            ("📊 Data bicara,", "perasaan diam."),
+            ("🔥 Disiplin SL hari ini =", "trading besok lagi."),
+        ]
+        _q = random.choice(_quotes)
 
-        st.markdown("""
-        <div class='hdr'>
-            <div class='hdr-title'>🎯 SNIPER FX</div>
-            <div class='hdr-sub'>SMART MONEY SCALPING SCANNER — 28 PAIRS — SMC + CLASSIC — M5 / H1 / H4</div>
+        st.markdown(f"""
+        <div class='sb-card'>
+            <div class='sb-card-title'>Indonesia Stock Exchange</div>
+            <div style='font-family:"Syne",sans-serif;font-size:1.8rem;font-weight:800;
+            letter-spacing:8px;background:linear-gradient(120deg,#e63946,#ffffff,#0d47a1);
+            -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+            display:inline-block;margin-bottom:4px'>IDX</div>
+            <div style='font-family:"JetBrains Mono",monospace;font-size:0.6rem;
+            color:var(--text-muted);letter-spacing:2px'>956 SAHAM · v2.0 ENHANCED</div>
+        </div>
+        <div class='quote-card'>
+            <div class='quote-line1'>{_q[0]}</div>
+            <div class='quote-line2'>{_q[1]}</div>
         </div>
         """, unsafe_allow_html=True)
 
-        # ============================================================
-        # SIDEBAR
-        # ============================================================
+        st.markdown("---")
+        st.markdown("### 🎯 SCAN MODE")
+        scan_mode = st.radio("Pilih mode:", ["🎯 Custom", "⚡ Top 50", "🔥 Semua 956 Saham", "🏭 Per Sektor"], index=0)
 
-        with st.sidebar:
-            st.markdown("### ⚙️ SCANNER CONFIG")
-            st.divider()
+        if scan_mode == "🎯 Custom":
+            custom_input = st.text_area("Ticker (pisah koma/enter):",
+                                        value="BBCA,BBRI,BMRI,TLKM,ASII,ANTM,ADRO,BSDE,UNVR,GOTO",
+                                        height=100)
+            tickers_to_scan = parse_tickers(custom_input)
+        elif scan_mode == "⚡ Top 50":
+            tickers_to_scan = [
+                "BBCA","BBRI","BMRI","TLKM","ASII","UNVR","ICBP","KLBF","HMSP",
+                "GGRM","INDF","PGAS","ANTM","PTBA","ADRO","ITMG","INCO","MEDC",
+                "AKRA","SMGR","CPIN","JPFA","BUMI","BRPT","TPIA","BSDE","PWON",
+                "CTRA","SMRA","JSMR","WIKA","WSKT","PTPP","ADHI","BBNI","BBTN",
+                "BDMN","NISP","PNBN","MDKA","MNCN","EXCL","ISAT","TBIG","TOWR",
+                "SIDO","MYOR","ROTI","TLKM","GOTO"
+            ]
+            st.info(f"✅ {len(tickers_to_scan)} saham top IDX")
+        elif scan_mode == "🔥 Semua 956 Saham":
+            tickers_to_scan = ALL_TICKERS
+            st.warning(f"⚠️ {len(ALL_TICKERS)} saham — butuh ~5-10 menit")
+        else:
+            sectors = sorted(set(SECTOR_MAP.values()))
+            selected_sector = st.selectbox("Pilih Sektor:", sectors)
+            tickers_to_scan = [t for t, s in SECTOR_MAP.items() if s == selected_sector]
+            st.info(f"✅ {len(tickers_to_scan)} saham sektor {selected_sector}")
 
-            active_sess=get_active_sessions()
-            ss_val,ss_note=get_session_score(active_sess)
-            st.markdown("**📡 SESSIONS (UTC)**")
-            for sn in ["Sydney","Tokyo","London","New York"]:
-                ia=sn in active_sess
-                col="#00ff88" if ia else "#1a3a5c"
-                dot=f"<span class='sess-dot' style='background:{col};{'box-shadow:0 0 6px '+col if ia else ''}'></span>"
-                st.markdown(f"<div style='font-size:12px;color:{col};font-family:Share Tech Mono'>{dot}{sn}</div>",
-                            unsafe_allow_html=True)
-            sc_color="#00ff88" if ss_val>=75 else "#ffd700" if ss_val>=50 else "#ff3355"
-            st.markdown(f"<div style='margin-top:8px;padding:7px;background:#0d1e2e;"
-                        f"border-left:3px solid {sc_color};font-family:Share Tech Mono;font-size:11px;"
-                        f"color:{sc_color}'>Session Score: {ss_val}/100<br>{ss_note}</div>",
-                        unsafe_allow_html=True)
+        st.markdown("---")
+        st.markdown("### 🔍 FILTER")
+        col_f1, col_f2 = st.columns(2)
+        with col_f1: min_score  = st.slider("Min Score:", 0, 100, 50, 5)
+        with col_f2: only_liquid= st.checkbox("Hanya Likuid", value=True)
 
-            st.divider()
-            st.markdown("**🌐 PAIRS**")
-            pg=st.selectbox("Pair Group",["All (29)","Major (7)","Minor/Cross (21)","Commodities (XAUUSD)","Custom"])
-            cp_list=[]
-            if pg=="Custom":
-                cp_list=st.multiselect("Select",list(ALL_PAIRS.keys()),default=["EURUSD","GBPUSD","USDJPY"])
+        modal = st.number_input("Modal Trading (Rp):", min_value=1_000_000, max_value=10_000_000_000,
+                                value=st.session_state['modal'], step=1_000_000, format="%d")
+        st.session_state['modal'] = modal
 
-            st.divider()
-            st.markdown("**🎛️ FILTERS**")
-            min_sc=st.slider("Min Score",0,100,50)
-            min_cf=st.slider("Min Confirmations",0,10,3)
-            show_r=st.multiselect("Ratings",["🎯 SNIPER","⚡ STRONG","✅ SETUP","👀 WATCH","⏳ WAIT","🚫 AVOID"],
-                                   default=["🎯 SNIPER","⚡ STRONG","✅ SETUP","👀 WATCH","⏳ WAIT","🚫 AVOID"])
-            dir_f=st.selectbox("Direction",["All","BUY only","SELL only"])
+        max_scan = (len(ALL_TICKERS) if scan_mode == "🔥 Semua 956 Saham"
+                    else st.slider("Max saham di-scan:", 10, 500, 200, 10))
 
-            st.divider()
-            st.markdown("""<div style='font-size:10px;color:#1a3a5c;font-family:Share Tech Mono;line-height:1.8'>
-            ◈ SMC: Smart Money Concepts<br>◈ OB: Order Block<br>◈ FVG: Fair Value Gap<br>
-            ◈ BOS: Break of Structure<br>◈ CHoCH: Change of Character<br>◈ P/D: Premium/Discount Zone
-            </div>""", unsafe_allow_html=True)
+        st.markdown("---")
+        scan_button = st.button("🚀 MULAI SCAN", type="primary", use_container_width=True)
+        if st.session_state.get('scan_time'):
+            st.caption(f"Scan terakhir: {st.session_state['scan_time']}")
+            st.caption(f"Total scan: {st.session_state.get('last_scan_count', 0)}x")
 
-        # ============================================================
-        # PAIRS TO SCAN
-        # ============================================================
+        st.markdown("---")
+        st.caption("v2.0 · RSI Wilder · MACD Fix · RS vs IHSG · Sector Momentum · Foreign Real")
+        st.caption("⚠️ Data edukasi. Bukan rekomendasi investasi.")
 
-        if pg=="Major (7)":            pairs=list(MAJOR_PAIRS.keys())
-        elif pg=="Minor/Cross (21)":   pairs=list(MINOR_PAIRS.keys())
-        elif pg=="Commodities (XAUUSD)": pairs=list(COMMODITY_PAIRS.keys())
-        elif pg=="Custom":             pairs=cp_list if cp_list else list(MAJOR_PAIRS.keys())
-        else:                          pairs=list(ALL_PAIRS.keys())
+    # ── TABS ──────────────────────────────────────────────────
+    tab_scanner, tab_rs, tab_sector, tab_foreign, tab_bandar, tab_backtest, tab_portfolio, tab_watchlist, tab_ai = st.tabs([
+        "📊 SCANNER", "📈 RS vs IHSG", "🏭 SEKTOR", "🌏 FOREIGN FLOW",
+        "🐋 BANDARMOLOGI", "🔬 BACKTEST", "💼 PORTFOLIO", "👀 WATCHLIST", "🤖 AI ANALYST"
+    ])
 
-        # ============================================================
-        # SCAN + QUICK ANALYZE BUTTONS
-        # ============================================================
+    # ── SCAN TRIGGER ─────────────────────────────────────────
+    if scan_button:
+        if not tickers_to_scan:
+            st.error("❌ Masukkan minimal satu ticker!")
+        else:
+            scan_list = tickers_to_scan[:max_scan]
+            with st.spinner("⏳ Memuat data pendukung (IHSG, Sektor, Foreign Flow)..."):
+                # Load IHSG
+                ihsg_closes = get_ihsg_data()
+                st.session_state['ihsg_closes'] = ihsg_closes
 
-        cb1,cb2,cb3=st.columns([2,1,1])
-        with cb1: scan_btn=st.button(f"🔍 SCAN {len(pairs)} PAIRS",use_container_width=True)
-        with cb2:
-            if st.button("🔄 CLEAR CACHE",use_container_width=True):
-                st.cache_data.clear(); st.rerun()
-        with cb3:
-            qp=st.selectbox("Quick Analyze",["—"]+list(ALL_PAIRS.keys()),label_visibility="collapsed")
+                # Load Sector Momentum
+                sector_momentum = get_sector_momentum()
+                st.session_state['sector_momentum'] = sector_momentum
 
-        # ============================================================
-        # QUICK SINGLE PAIR
-        # ============================================================
+                # Load Foreign Flow Real
+                rti_data = fetch_foreign_flow_rti()
+                st.session_state['rti_data'] = rti_data
 
-        if qp and qp != "—":
-            with st.spinner(f"Analyzing {qp}..."):
-                res=analyze(qp)
-            dc_=dc(res["direction"]); sc_=sc(res["score"])
-            arrow="▲" if res["direction"]=="BUY" else "▼" if res["direction"]=="SELL" else "◆"
-            dclass="buy" if res["direction"]=="BUY" else "sell" if res["direction"]=="SELL" else "neutral"
+                if rti_data:
+                    st.success(f"✅ Foreign flow real: {len(rti_data)} saham dari RTI/IDX")
+                else:
+                    st.info("ℹ️ Foreign flow: menggunakan estimasi volume-based")
 
-            st.markdown(f"""<div class='signal-card {dclass}'>
-            <div style='display:flex;justify-content:space-between;align-items:center'>
-                <div><span style='font-size:22px;font-weight:900;color:#e0f0ff;font-family:Share Tech Mono;
-                    letter-spacing:2px'>{res["symbol"]}</span>
-                <span style='margin-left:10px;color:#5a7a9a;font-family:Share Tech Mono;font-size:13px'>
-                    {res["name"]} · {res["price"]:.5f}</span></div>
-                <div style='text-align:right'>{badge(res["rating"])}
-                <div style='font-size:22px;color:{dc_};font-weight:900;margin-top:4px'>{arrow} {res["direction"]}</div></div>
-            </div></div>""", unsafe_allow_html=True)
+            with st.spinner(f"🔍 Scanning {len(scan_list)} saham..."):
+                pb = st.progress(0, "Memulai scan...")
+                results = run_scan(scan_list, pb, ihsg_closes, sector_momentum, rti_data)
+                pb.empty()
 
-            ca,cb_,cc,cd,ce=st.columns(5)
-            mcard(ca,"SCORE",f"{res['score']}/100",sc_)
-            mcard(cb_,"H4 BIAS",res["bias"],"#ffd700")
-            mcard(cc,"CONFIRMATIONS",res["confirmations"],"#00bfff")
-            mcard(cd,"ZONE",res["premium_zone"],"#ff8c00")
-            mcard(ce,"RR RATIO",f"1:{res['rr_ratio']:.1f}","#ff8c00")
+                # ============================================================
+                # SMART FILTER — Hanya saham paling potensial yang lolos
+                # ============================================================
 
-            st.markdown("<br>",unsafe_allow_html=True)
-            ca2,cb2_,cc2=st.columns(3)
-            mcard(ca2,"RSI",res["rsi"])
-            mcard(cb2_,"ADX",res["adx"])
-            mcard(cc2,"STOCH",f"{res['stoch_k']:.0f}")
+                # 1. Buang semua yang di-disqualify (penny, tidak likuid, dll)
+                filtered = [r for r in results if not r.get("disqualified", False)]
 
-            if res["direction"]!="NEUTRAL" and res["sl_pips"]>0:
-                tc="#00ff88" if res["direction"]=="BUY" else "#ff3355"
-                st.markdown(f"""<div class='alert-box'>
-                <b style='color:{tc}'>📍 {res["direction"]} ENTRY PLAN</b><br>
-                Entry <b>{res["price"]:.5f}</b> &nbsp;|&nbsp;
-                SL <b style='color:#ff3355'>{res["sl_price"]:.5f}</b> ({res["sl_pips"]}p) &nbsp;|&nbsp;
-                TP1 <b style='color:#00ff88'>{res["tp1_price"]:.5f}</b> ({res["tp1_pips"]}p) &nbsp;|&nbsp;
-                TP2 <b style='color:#00ff88'>{res["tp2_price"]:.5f}</b> ({res["tp2_pips"]}p) &nbsp;|&nbsp;
-                <b style='color:#ffd700'>RR 1:{res["rr_ratio"]:.1f}</b>
-                </div>""", unsafe_allow_html=True)
+                # 2. Buang rating AVOID dan NEUTRAL
+                filtered = [r for r in filtered if r.get("rating", "") not in ["AVOID", "NEUTRAL"]]
 
-            t1,t2,t3,t4,t5,t6=st.tabs(["📈 CHART","📡 SIGNALS","⚠️ WARNINGS","🏗️ SMC ZONES","📋 COT REPORT","🤖 AI ANALYSIS"])
-            with t1:
-                render_chart_tab(res)
-            with t2:
-                for s in res["signals"]:
-                    st.markdown(f"<span class='conf-tag conf-pos'>{s}</span>",unsafe_allow_html=True)
-            with t3:
-                for w in res["warnings"]:
-                    st.markdown(f"<span class='conf-tag conf-neg'>{w}</span>",unsafe_allow_html=True)
-                if not res["warnings"]: st.success("No warnings ✓")
-            with t4:
-                if res["order_blocks"]:
-                    st.markdown("**Order Blocks**")
-                    for ob in res["order_blocks"]:
-                        c_="#00ff88" if ob["type"]=="BULL" else "#ff3355"
-                        st.markdown(f"<div class='info-row'><span style='color:{c_}'>{ob['type']} OB</span>"
-                                    f"<span style='color:#7a9abf;font-family:Share Tech Mono;font-size:11px'>"
-                                    f"{ob['low']:.5f}–{ob['high']:.5f} str:{ob['str']}</span></div>",
-                                    unsafe_allow_html=True)
-                if res["fvg"]:
-                    st.markdown("**Fair Value Gaps**")
-                    for f in res["fvg"]:
-                        c_="#00bfff" if f["type"]=="BULL" else "#ff8c00"
-                        st.markdown(f"<div class='info-row'><span style='color:{c_}'>{f['type']} FVG</span>"
-                                    f"<span style='color:#7a9abf;font-family:Share Tech Mono;font-size:11px'>"
-                                    f"{f['bot']:.5f}–{f['top']:.5f}</span></div>",
-                                    unsafe_allow_html=True)
-            with t5:
-                _render_cot_tab(res["cot"], res["symbol"])
-            with t6:
-                render_ai_tab(res)
-            st.divider()
+                # 3. Filter score minimum dari slider user
+                filtered = [r for r in filtered if r.get("score", 0) >= min_score]
 
-        # ============================================================
-        # MAIN SCAN
-        # ============================================================
+                # 4. Wajib likuid jika checkbox aktif
+                if only_liquid:
+                    filtered = [r for r in filtered if r.get("is_liquid", False)]
 
-        if scan_btn:
-            st.session_state["scan_results"]=[]
-            st.session_state["debug_log"]=[]
+                # 5. Wajib minimal 3 konfirmasi independen
+                filtered = [r for r in filtered if r.get("confirmations", 0) >= 3]
 
-            # Load COT data once for all pairs
-            cot_status = st.empty()
-            cot_status.markdown("<div style='font-family:Share Tech Mono;font-size:11px;color:#ffd700'>"
-                                "📋 Loading COT Report from CFTC...</div>", unsafe_allow_html=True)
-            cot_df = fetch_cot_data()
-            if cot_df is not None:
-                cot_status.markdown("<div style='font-family:Share Tech Mono;font-size:11px;color:#00ff88'>"
-                                    f"✅ COT Report loaded — {len(cot_df)} records</div>", unsafe_allow_html=True)
-            else:
-                cot_status.markdown("<div style='font-family:Share Tech Mono;font-size:11px;color:#ff8c00'>"
-                                    "⚠️ COT data unavailable — analysis continues without it</div>", unsafe_allow_html=True)
+                # 6. Quality gate: minimal 2/4 gate terpenuhi
+                filtered = [r for r in filtered if r.get("quality_gates", 0) >= 2]
 
-            bar=st.progress(0,"Initializing...")
-            txt=st.empty()
-            results=[]
-            debug_log=[]
-            data_ok=0; data_fail=0
-            for i,sym in enumerate(pairs):
-                bar.progress((i+1)/len(pairs),f"Scanning {sym}... ({i+1}/{len(pairs)})")
-                txt.markdown(f"<div style='font-family:Share Tech Mono;font-size:11px;color:#5a7a9a'>"
-                             f"◈ Analyzing {ALL_PAIRS.get(sym,sym)}</div>",unsafe_allow_html=True)
-                try:
-                    r = analyze(sym, cot_df)
-                    results.append(r)
-                    if r["price"] > 0:
-                        data_ok += 1
-                        debug_log.append(f"✅ {sym}: price={r['price']:.5f} score={r['score']} rating={r['rating']}")
-                    else:
-                        data_fail += 1
-                        sig_preview = r["signals"][0] if r["signals"] else "no signal"
-                        debug_log.append(f"❌ {sym}: no price data — {sig_preview}")
-                except Exception as e:
-                    data_fail += 1
-                    debug_log.append(f"💥 {sym}: exception — {str(e)[:80]}")
-                    results.append({"symbol":sym,"name":ALL_PAIRS.get(sym,sym),"score":0,
-                        "direction":"NEUTRAL","rating":"🚫 AVOID","confirmations":0,
-                        "signals":[f"Error: {e}"],"warnings":[],"price":0,"rsi":50,"adx":20,
-                        "bias":"RANGING","bos":False,"choch":False,"premium_zone":"EQ","premium_pct":50,
-                        "sl_pips":0,"tp1_pips":0,"tp2_pips":0,"rr_ratio":0,"sl_price":0,
-                        "tp1_price":0,"tp2_price":0,"buy_s":0,"sell_s":0,"macd":0,"macd_hist":0,
-                        "stoch_k":50,"stoch_d":50,"bb_pct":50,"atr":0,"order_blocks":[],"fvg":[],
-                        "h1_trend":"N/A","h4_bias":"N/A","m5_momentum":"N/A","cot":_cot_empty()})
-                # Small delay every 5 pairs to avoid yfinance rate limiting
-                if (i + 1) % 5 == 0:
-                    import time; time.sleep(1)
-            bar.empty(); txt.empty(); cot_status.empty()
-            st.session_state["scan_results"]=results
-            st.session_state["debug_log"]=debug_log
-            st.session_state["data_ok"]=data_ok
-            st.session_state["data_fail"]=data_fail
+                # 7. Buang saham yang sektor-nya sedang turun parah (rank >= 11)
+                #    kecuali saham itu sendiri punya RS sangat kuat (>70)
+                filtered = [r for r in filtered
+                            if r.get("sec_rank", 13) <= 10
+                            or r.get("rs_score", 50) > 70]
 
-        # ============================================================
-        # DISPLAY RESULTS
-        # ============================================================
+                # 8. Buang saham yang RSI overbought (>75) kecuali breakout kuat
+                filtered = [r for r in filtered
+                            if r.get("rsi", 50) <= 75
+                            or (r.get("vol_ratio", 0) > 3 and r.get("adx", 0) > 30)]
 
-        if st.session_state.get("scan_results"):
-            results=st.session_state["scan_results"]
+                # 9. COMPOSITE SCORE — bukan cuma score teknikal
+                #    Gabungkan: Score(45%) + RS vs IHSG(20%) + Konfirmasi(15%) + Sektor(10%) + Quality Gate(10%)
+                def composite(r):
+                    s   = r.get("score", 0)
+                    rs  = r.get("rs_score", 50)
+                    c   = min(r.get("confirmations", 0), 10) * 10
+                    qg  = r.get("quality_gates", 0) * 20
+                    sec = max(0, (13 - r.get("sec_rank", 13))) * 5
+                    return s * 0.45 + rs * 0.20 + c * 0.15 + qg * 0.10 + sec * 0.10
 
-            # ── DEBUG PANEL ──
-            data_ok   = st.session_state.get("data_ok", 0)
-            data_fail = st.session_state.get("data_fail", 0)
-            debug_log = st.session_state.get("debug_log", [])
+                filtered = sorted(filtered, key=composite, reverse=True)
 
-            if data_fail > 0:
-                with st.expander(f"⚠️ DEBUG — {data_ok} pairs OK / {data_fail} pairs FAILED (click to expand)", expanded=data_ok==0):
-                    st.markdown(f"""<div style='background:#050a0e;border:1px solid #1a3a5c;border-radius:4px;
-                    padding:12px;font-family:Share Tech Mono;font-size:11px;line-height:1.8'>""",
-                    unsafe_allow_html=True)
-                    for line in debug_log:
-                        color = "#00ff88" if line.startswith("✅") else "#ff3355" if line.startswith(("❌","💥")) else "#ffd700"
-                        st.markdown(f"<div style='color:{color}'>{line}</div>", unsafe_allow_html=True)
-                    st.markdown("</div>", unsafe_allow_html=True)
-                    if data_ok == 0:
-                        st.markdown("""<div class='alert-box'>
-                        <b style='color:#ff3355'>🚨 All data fetches failed</b><br>
-                        yfinance cannot reach Yahoo Finance from this server.<br>
-                        <b>Solutions:</b><br>
-                        ◈ Try running locally: <code>streamlit run app.py</code><br>
-                        ◈ Or check if HF Spaces has network restrictions<br>
-                        ◈ yfinance sometimes needs a few minutes — try scanning again
-                        </div>""", unsafe_allow_html=True)
-            rorder={"🎯 SNIPER":0,"⚡ STRONG":1,"✅ SETUP":2,"👀 WATCH":3,"⏳ WAIT":4,"🚫 AVOID":5}
+                st.session_state["stocks"]          = filtered
+                st.session_state["scan_time"]       = datetime.now().strftime("%H:%M:%S")
+                st.session_state["last_scan_count"] = st.session_state.get("last_scan_count", 0) + 1
+                st.session_state["data_loaded"]     = True
 
-            filtered=[r for r in results
-                      if r["score"]>=min_sc and r["confirmations"]>=min_cf
-                      and r["rating"] in show_r
-                      and (dir_f=="All"
-                           or (dir_f=="BUY only" and r["direction"]=="BUY")
-                           or (dir_f=="SELL only" and r["direction"]=="SELL"))]
-            filtered.sort(key=lambda x:(rorder.get(x["rating"],9),-x["score"]))
+                live_count     = sum(1 for r in results if r.get("source") == "live")
+                disq_count     = sum(1 for r in results if r.get("disqualified", False))
+                strong_count   = sum(1 for r in filtered if r.get("score", 0) >= 72)
+                outperform_cnt = sum(1 for r in filtered if r.get("rs_outperform", False))
+                st.success(
+                    f"✅ Scan selesai!\n"
+                    f"- {len(results)} saham di-scan ({live_count} live data)\n"
+                    f"- {disq_count} saham didiskualifikasi (penny/tidak likuid/distribusi)\n"
+                    f"- **{len(filtered)} saham LOLOS semua filter**\n"
+                    f"- {strong_count} Strong Buy / Super Buy · {outperform_cnt} outperform IHSG\n"
+                    f"- Diurutkan: Composite Score (Teknikal + RS + Konfirmasi + Sektor)"
+                )
 
-            # Summary
-            st.markdown("### 📊 SCAN SUMMARY")
-            total=len(results)
-            sniper=len([r for r in results if r["rating"]=="🎯 SNIPER"])
-            strong=len([r for r in results if r["rating"]=="⚡ STRONG"])
-            setups=len([r for r in results if r["rating"] in ["🎯 SNIPER","⚡ STRONG","✅ SETUP"]])
-            buys=len([r for r in results if r["direction"]=="BUY"])
-            sells=len([r for r in results if r["direction"]=="SELL"])
-
-            c1,c2,c3,c4,c5,c6=st.columns(6)
-            mcard(c1,"SCANNED",total,"#5a7a9a")
-            mcard(c2,"🎯 SNIPER",sniper,"#ffd700")
-            mcard(c3,"⚡ STRONG",strong,"#00ff88")
-            mcard(c4,"📋 SETUPS",setups,"#00bfff")
-            mcard(c5,"🟢 BUY",buys,"#00ff88")
-            mcard(c6,"🔴 SELL",sells,"#ff3355")
-
-            st.markdown(f"### 🎯 {len(filtered)} PAIRS MATCH FILTERS")
-
-            if not filtered:
-                st.markdown("<div class='alert-box'>No pairs match current filters — try lowering thresholds.</div>",
-                            unsafe_allow_html=True)
-            else:
-                tab1,tab2,tab3,tab_cot=st.tabs(["🃏 SIGNAL CARDS","📋 TABLE","🏆 TOP SETUPS","📋 COT OVERVIEW"])
-
-                with tab1:
-                    for r in filtered[:20]:
-                        dc_=dc(r["direction"]); sc_=sc(r["score"])
-                        dclass="buy" if r["direction"]=="BUY" else "sell" if r["direction"]=="SELL" else "neutral"
-                        arrow="▲" if r["direction"]=="BUY" else "▼" if r["direction"]=="SELL" else "◆"
-                        st.markdown(f"""<div class='signal-card {dclass}'>
-                        <div style='display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px'>
-                            <div><span style='font-size:17px;font-weight:900;color:#e0f0ff;
-                                font-family:Share Tech Mono;letter-spacing:2px'>{r["symbol"]}</span>
-                            <span style='margin-left:8px;font-size:11px;color:#5a7a9a;
-                                font-family:Share Tech Mono'>{r["price"]:.5f}</span></div>
-                            <div style='text-align:right'>{badge(r["rating"])}
-                            <div style='color:{dc_};font-size:18px;font-weight:900'>{arrow} {r["direction"]}</div>
-                            </div></div>
-                        <div style='display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px'>
-                            <span style='font-family:Share Tech Mono;font-size:11px;color:{sc_}'>SCORE:{r["score"]}</span>
-                            <span style='font-family:Share Tech Mono;font-size:11px;color:#00bfff'>CONF:{r["confirmations"]}</span>
-                            <span style='font-family:Share Tech Mono;font-size:11px;color:#ffd700'>H4:{r["bias"]}</span>
-                            <span style='font-family:Share Tech Mono;font-size:11px;color:#ff8c00'>ZONE:{r["premium_zone"]}</span>
-                            <span style='font-family:Share Tech Mono;font-size:11px;color:#7a9abf'>RSI:{r["rsi"]}</span>
-                            <span style='font-family:Share Tech Mono;font-size:11px;color:#7a9abf'>ADX:{r["adx"]}</span>
-                        </div>
-                        {sbar(r["score"],sc_)}
-                        <div style='margin-top:6px'>""", unsafe_allow_html=True)
-                        for s in r["signals"][:3]:
-                            st.markdown(f"<span class='conf-tag conf-pos'>◈ {s}</span>",unsafe_allow_html=True)
-                        if r["direction"]!="NEUTRAL" and r["sl_pips"]>0:
-                            tc="#00ff88" if r["direction"]=="BUY" else "#ff3355"
-                            st.markdown(f"""<div style='margin-top:8px;padding:8px;background:#050a0e;
-                                border-radius:4px;font-family:Share Tech Mono;font-size:11px'>
-                                <span style='color:#5a7a9a'>ENTRY</span>
-                                <span style='color:#e0f0ff;margin:0 8px'>{r["price"]:.5f}</span>
-                                <span style='color:#ff3355'>SL {r["sl_price"]:.5f} ({r["sl_pips"]}p)</span>
-                                <span style='margin:0 6px;color:#1a3a5c'>|</span>
-                                <span style='color:#00ff88'>TP1 {r["tp1_price"]:.5f} ({r["tp1_pips"]}p)</span>
-                                <span style='margin:0 6px;color:#1a3a5c'>|</span>
-                                <span style='color:#00ff88'>TP2 {r["tp2_price"]:.5f}</span>
-                                <span style='margin-left:8px;color:#ffd700'>RR 1:{r["rr_ratio"]:.1f}</span>
-                            </div>""", unsafe_allow_html=True)
-                        # AI Analysis button per card
-                        if get_api_key():
-                            ai_key = f"ai_{r['symbol']}_{r['score']}_{r['direction']}_{r['price']:.3f}"
-                            if st.button(f"🤖 AI Analyze {r['symbol']}", key=f"scan_ai_{r['symbol']}", use_container_width=True):
-                                with st.spinner(f"🤖 Analyzing {r['symbol']}..."):
-                                    prompt = build_ai_prompt(r)
-                                    ai_text, err = call_groq_api(prompt, get_api_key())
-                                    st.session_state[ai_key] = ai_text if ai_text else f"ERROR:{err}"
-                            if ai_key in st.session_state:
-                                ai_result = st.session_state[ai_key]
-                                if ai_result.startswith("ERROR:"):
-                                    st.error(ai_result[6:])
-                                else:
-                                    with st.expander("🤖 AI Analysis Result", expanded=True):
-                                        st.markdown(ai_result)
-                        st.markdown("</div></div><br>",unsafe_allow_html=True)
-
-                with tab2:
-                    rows=[]
-                    for r in filtered:
-                        cot=r.get("cot",_cot_empty())
-                        rows.append({
-                            "Pair":r["symbol"],"Price":f"{r['price']:.5f}",
-                            "Dir":r["direction"],"Score":r["score"],"Rating":r["rating"],
-                            "Conf":r["confirmations"],"H4":r["bias"],"Zone":r["premium_zone"],
-                            "RSI":r["rsi"],"ADX":r["adx"],
-                            "BOS":"✓" if r.get("bos") else "","CHoCH":"✓" if r.get("choch") else "",
-                            "COT Idx":f"{cot['cot_index']:.0f}" if cot["available"] else "N/A",
-                            "COT Sig":cot["signal"] if cot["available"] else "N/A",
-                            "SL p":r["sl_pips"],"TP1 p":r["tp1_pips"],"RR":f"1:{r['rr_ratio']:.1f}"
-                        })
-                    if rows:
-                        st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True,
-                                     height=min(600,40+len(rows)*35))
-
-                with tab3:
-                    st.markdown("### 🏆 TOP 5 SETUPS")
-                    top5=[r for r in filtered if r["rating"] in ["🎯 SNIPER","⚡ STRONG"]][:5]
-                    if not top5: top5=filtered[:5]
-                    medals=["🥇","🥈","🥉","4️⃣","5️⃣"]
-                    for i,r in enumerate(top5):
-                        dc_=dc(r["direction"]); sc_=sc(r["score"])
-                        dclass="buy" if r["direction"]=="BUY" else "sell" if r["direction"]=="SELL" else "neutral"
-                        st.markdown(f"""<div class='signal-card {dclass}'>
-                        <div style='display:flex;justify-content:space-between'>
-                            <div><span style='font-size:16px'>{medals[i]}</span>
-                            <span style='font-size:22px;font-weight:900;color:#e0f0ff;
-                                font-family:Share Tech Mono;margin-left:8px'>{r["symbol"]}</span>
-                            <span style='font-size:20px;font-weight:900;color:{dc_};margin-left:12px'>
-                                {r["direction"]}</span></div>
-                            <div style='text-align:right'>
-                                <div style='font-size:30px;font-weight:900;color:{sc_};
-                                    font-family:Share Tech Mono'>{r["score"]}</div>
-                                <div style='font-size:9px;color:#5a7a9a;letter-spacing:1px'>SNIPER SCORE</div>
-                            </div></div>
-                        {sbar(r["score"],sc_)}
-                        <div style='margin-top:10px;font-family:Share Tech Mono;font-size:11px;
-                            color:#7a9abf;line-height:1.8'>
-                            ◈ {r["price"]:.5f} &nbsp;|&nbsp; SL {r["sl_price"]:.5f} ({r["sl_pips"]}p)
-                            &nbsp;|&nbsp; TP1 {r["tp1_price"]:.5f} &nbsp;|&nbsp; TP2 {r["tp2_price"]:.5f}
-                            &nbsp;|&nbsp; <span style='color:#ffd700'>RR 1:{r["rr_ratio"]:.1f}</span>
-                        </div><div style='margin-top:6px'>""", unsafe_allow_html=True)
-                        for s in r["signals"][:4]:
-                            st.markdown(f"<span class='conf-tag conf-pos'>{s}</span>",unsafe_allow_html=True)
-                        st.markdown("</div></div><br>",unsafe_allow_html=True)
-
-                with tab_cot:
-                    st.markdown("### 📋 COT REPORT — INSTITUTIONAL POSITIONING OVERVIEW")
-                    st.caption("CFTC Traders in Financial Futures | Updated every Friday | Source: CFTC.gov")
-                    st.divider()
-
-                    # Check if any COT data available
-                    cot_available = any(r.get("cot",{}).get("available") for r in results)
-                    if not cot_available:
-                        st.markdown("""<div class='alert-box'>
-                        <b style='color:#ffd700'>⚠️ COT data was not loaded</b><br>
-                        CFTC may be unreachable or data may not be available yet.
-                        COT is published every Friday ~3:30 PM EST.
-                        The scanner still works with all other 5 layers.
-                        </div>""", unsafe_allow_html=True)
-                    else:
-                        # Sort by COT index for most bullish/bearish
-                        cot_results = [(r["symbol"], r.get("cot",_cot_empty()))
-                                       for r in results if r.get("cot",{}).get("available")]
-                        cot_bull = sorted([(s,c) for s,c in cot_results if c["signal"]=="BULLISH"],
-                                          key=lambda x:-x[1]["cot_index"])
-                        cot_bear = sorted([(s,c) for s,c in cot_results if c["signal"]=="BEARISH"],
-                                          key=lambda x:x[1]["cot_index"])
-                        cot_neut = [(s,c) for s,c in cot_results if c["signal"]=="NEUTRAL"]
-
-                        col_l, col_r = st.columns(2)
-                        with col_l:
-                            st.markdown(f"**🟢 INSTITUTIONALLY BULLISH ({len(cot_bull)})**")
-                            for sym, cot in cot_bull[:10]:
-                                ci=cot["cot_index"]
-                                bar_w=int(ci)
-                                st.markdown(f"""
-                                <div style='margin:6px 0'>
-                                    <div style='display:flex;justify-content:space-between;
-                                        font-family:Share Tech Mono;font-size:12px;margin-bottom:3px'>
-                                        <span style='color:#e0f0ff'>{sym}</span>
-                                        <span style='color:#00ff88'>Index:{ci:.0f} | Net:{cot["dealer_net"]:+,}</span>
-                                    </div>
-                                    <div style='background:#050a0e;border-radius:2px;height:4px'>
-                                        <div style='width:{bar_w}%;height:100%;background:#00ff88;border-radius:2px'></div>
-                                    </div>
-                                </div>""", unsafe_allow_html=True)
-
-                        with col_r:
-                            st.markdown(f"**🔴 INSTITUTIONALLY BEARISH ({len(cot_bear)})**")
-                            for sym, cot in cot_bear[:10]:
-                                ci=cot["cot_index"]
-                                bar_w=int(100-ci)
-                                st.markdown(f"""
-                                <div style='margin:6px 0'>
-                                    <div style='display:flex;justify-content:space-between;
-                                        font-family:Share Tech Mono;font-size:12px;margin-bottom:3px'>
-                                        <span style='color:#e0f0ff'>{sym}</span>
-                                        <span style='color:#ff3355'>Index:{ci:.0f} | Net:{cot["dealer_net"]:+,}</span>
-                                    </div>
-                                    <div style='background:#050a0e;border-radius:2px;height:4px'>
-                                        <div style='width:{bar_w}%;height:100%;background:#ff3355;border-radius:2px'></div>
-                                    </div>
-                                </div>""", unsafe_allow_html=True)
-
-                        # Extreme alerts
-                        extremes = [(s,c) for s,c in cot_results if c["extreme"]]
-                        if extremes:
-                            st.divider()
-                            st.markdown("**⚠️ EXTREME POSITIONING ALERTS — Potential Reversal Zones**")
-                            for sym, cot in extremes:
-                                ci = cot["cot_index"]
-                                if ci > 80:
-                                    msg = f"🔴 {sym}: EXTREME LONG (Index:{ci:.0f}) — institutions max long, reversal risk"
-                                    col = "#ff8c00"
-                                else:
-                                    msg = f"🟢 {sym}: EXTREME SHORT (Index:{ci:.0f}) — institutions max short, bounce risk"
-                                    col = "#00bfff"
-                                st.markdown(f"<div style='font-family:Share Tech Mono;font-size:12px;"
-                                            f"color:{col};padding:4px 0'>{msg}</div>", unsafe_allow_html=True)
-
-            # Market overview
-            st.divider()
-            st.markdown("### 🌐 MARKET OVERVIEW")
-            all_buy=sorted([r for r in results if r["direction"]=="BUY"],key=lambda x:-x["score"])
-            all_sell=sorted([r for r in results if r["direction"]=="SELL"],key=lambda x:-x["score"])
-            all_neut=[r for r in results if r["direction"]=="NEUTRAL"]
-
-            co1,co2,co3=st.columns(3)
-            with co1:
-                st.markdown(f"**🟢 BUY ({len(all_buy)})**")
-                for r in all_buy[:10]:
-                    s_=sc(r["score"])
-                    st.markdown(f"<div class='info-row'>"
-                                f"<span style='color:#e0f0ff;font-family:Share Tech Mono;font-size:12px'>{r['symbol']}</span>"
-                                f"<span style='color:{s_};font-family:Share Tech Mono;font-size:12px'>{r['score']} {r['rating'].split()[0]}</span></div>",
-                                unsafe_allow_html=True)
-            with co2:
-                st.markdown(f"**🔴 SELL ({len(all_sell)})**")
-                for r in all_sell[:10]:
-                    s_=sc(r["score"])
-                    st.markdown(f"<div class='info-row'>"
-                                f"<span style='color:#e0f0ff;font-family:Share Tech Mono;font-size:12px'>{r['symbol']}</span>"
-                                f"<span style='color:{s_};font-family:Share Tech Mono;font-size:12px'>{r['score']} {r['rating'].split()[0]}</span></div>",
-                                unsafe_allow_html=True)
-            with co3:
-                st.markdown(f"**⚪ NEUTRAL ({len(all_neut)})**")
-                for r in all_neut[:10]:
-                    st.markdown(f"<div class='info-row'>"
-                                f"<span style='color:#5a7a9a;font-family:Share Tech Mono;font-size:12px'>{r['symbol']}</span>"
-                                f"<span style='color:#1a3a5c;font-family:Share Tech Mono;font-size:12px'>{r['score']}</span></div>",
-                                unsafe_allow_html=True)
-
-        # Empty state
-        elif not st.session_state.get("scan_results"):
-            st.markdown("""<div style='text-align:center;padding:60px 20px'>
-            <div style='font-size:64px;margin-bottom:20px'>🎯</div>
-            <div style='font-family:Share Tech Mono;font-size:22px;color:#5a7a9a;
-                letter-spacing:4px;margin-bottom:12px'>SCANNER READY</div>
-            <div style='font-family:Share Tech Mono;font-size:11px;color:#1a3a5c;
-                line-height:2.2;max-width:480px;margin:auto'>
-                ◈ LAYER 1 — H4 Market Structure (BOS / CHoCH)<br>
-                ◈ LAYER 2 — SMC Zones (Order Block / FVG / Liquidity)<br>
-                ◈ LAYER 3 — Classic Indicators (RSI / MACD / ADX / Stoch / BB)<br>
-                ◈ LAYER 4 — Session Filter (London / NY / Tokyo / Sydney)<br>
-                ◈ LAYER 5 — M5 Entry Trigger (Engulfing / Hammer / Pin Bar)
-            </div></div>""", unsafe_allow_html=True)
-
-        # Footer
-        st.divider()
-        st.markdown("""<div style='text-align:center;font-family:Share Tech Mono;font-size:10px;
-        color:#1a3a5c;letter-spacing:2px;padding:10px'>
-        SNIPER FX v1.0 ◈ EDUCATIONAL PURPOSES ONLY ◈ NOT FINANCIAL ADVICE ◈
-        ALWAYS USE PROPER RISK MANAGEMENT ◈ MAX 1-2% RISK PER TRADE
-        </div>""", unsafe_allow_html=True)
-
-        if "scan_results" not in st.session_state: st.session_state["scan_results"]=[]
-
-
-
-        # ============================================================
-        # app.py — AKSARA IDX v2.0 (ENHANCED EDITION)
-        # Fitur: Scanner 956 Saham IDX · Bandarmologi · Foreign Flow Real
-        #         Chart Pattern · AI Confidence (Groq) · Backtest v2
-        #         Portfolio · Risk Manager · Wyckoff · Sector Momentum
-        #         Relative Strength vs IHSG · RSI Wilder · MACD Fix
-        # ============================================================
-
-    elif "Bid>Offer" in mode:
-        st.markdown('<h1 class="main-header">🇮🇩 SAHAM INDONESIA SCANNER PRO</h1>', unsafe_allow_html=True)
-        st.caption(f"955+ saham · Bid/Offer Anomaly & Volatility · {now.strftime('%d %b %Y %H:%M')} WIB")
-        src=st.session_state.get("_custom955",DEFAULT_SAHAM_IDX_955)
-        mode_a6=cfg.get("mode_a6","Keduanya"); vol_thr=cfg.get("vol_thr",25.0)
-        max_scan=cfg.get("max_scan",100); min_p=cfg.get("min_price",0)
-        max_p=cfg.get("max_price",999999); min_v=cfg.get("min_volume",0)
-        if st.button("🚀 MULAI SCANNING",type="primary",use_container_width=True):
-            prog=st.progress(0); status=st.empty()
-            stocks_list=src[:max_scan]; bid_res,vol_res,errs=[],[],[]
-            for idx,ticker in enumerate(stocks_list):
-                prog.progress((idx+1)/len(stocks_list))
-                status.text(f"🔍 {ticker} ({idx+1}/{len(stocks_list)})")
-                try:
-                    info=yf.Ticker(ticker).info; hist=yf.Ticker(ticker).history(period="5d")
-                    cur=info.get("currentPrice",0) or info.get("regularMarketPrice",0)
-                    if cur and (cur<min_p or cur>max_p): continue
-                    vol=info.get("volume",0)
-                    if vol<min_v*100: continue
-                    bid=info.get("bid",0); ask=info.get("ask",0)
-                    if bid and ask and bid>ask and mode_a6 in ["Bid>Offer","Keduanya"]:
-                        pc=info.get("previousClose",0); chg=(cur-pc)/pc*100 if pc else 0
-                        bid_res.append({"Ticker":ticker.replace(".JK",""),
-                            "Nama":info.get("longName",info.get("shortName",""))[:25],
-                            "Bid":bid,"Offer/Ask":ask,"Anomaly %":round((bid-ask)/ask*100,2),
-                            "Harga":cur,"Change %":round(chg,2),"Volume":vol})
-                    if hist is not None and len(hist)>=3 and mode_a6 in ["Volatility","Keduanya"]:
-                        vd=calc_volatility(hist)
-                        if vd and vd["vol"]>=vol_thr:
-                            vol_res.append({"Ticker":ticker.replace(".JK",""),
-                                "Nama":info.get("longName","")[:25],
-                                "Volatility %":round(vd["vol"],2),"Harga":vd["price"],
-                                "Change 5D %":round(vd["chg5d"],2),"Avg Volume":int(vd["avg_vol"]),
-                                "High 5D":vd["high5"],"Low 5D":vd["low5"],
-                                "Range %":round((vd["high5"]-vd["low5"])/vd["low5"]*100,2)})
-                except Exception as e: errs.append(f"{ticker}: {e}")
-                time.sleep(0.05)
-            prog.empty(); status.empty()
-            st.session_state.update({"_a6_bid":bid_res,"_a6_vol":vol_res,"_a6_errs":errs,"_a6_scanned":len(stocks_list)})
-            st.rerun()
-        bid_res=st.session_state.get("_a6_bid",[]); vol_res=st.session_state.get("_a6_vol",[])
-        errs=st.session_state.get("_a6_errs",[]); scanned=st.session_state.get("_a6_scanned",0)
-        if scanned:
-            c1,c2,c3,c4=st.columns(4)
-            c1.metric("📊 Scanned",scanned); c2.metric("🚨 Bid>Offer",len(bid_res))
-            c3.metric("⚡ Volatility",len(vol_res)); c4.metric("❌ Errors",len(errs))
-            st.divider()
-        if bid_res:
-            st.markdown("## 🚨 BID > OFFER ANOMALIES")
-            df_b=pd.DataFrame(bid_res).sort_values("Anomaly %",ascending=False)
-            cols_=st.columns(min(4,len(df_b)))
-            for i,(_,r) in enumerate(df_b.head(4).iterrows()):
-                with cols_[i]:
-                    st.markdown(f'''<div class="anomaly-card"><h3 style="margin:0">{r["Ticker"]}</h3>
-                    <small>{r["Nama"]}</small><br>
-                    Bid <b>Rp {r["Bid"]:,.0f}</b> · Ask <b>Rp {r["Offer/Ask"]:,.0f}</b><br>
-                    <b>Anomaly {r["Anomaly %"]:.2f}%</b> · Change {r["Change %"]:+.2f}%</div>''',unsafe_allow_html=True)
-            st.dataframe(df_b.style.background_gradient(subset=["Anomaly %"],cmap="Reds")
-                .background_gradient(subset=["Change %"],cmap="RdYlGn",vmin=-10,vmax=10),
-                use_container_width=True,height=400)
-            st.download_button("📥 CSV",df_b.to_csv(index=False),f"bid_offer_{now.strftime('%Y%m%d_%H%M')}.csv","text/csv")
-        if vol_res:
-            st.divider(); st.markdown("## ⚡ VOLATILITY SCANNER")
-            df_v=pd.DataFrame(vol_res).sort_values("Volatility %",ascending=False)
-            c1,c2=st.columns(2)
-            with c1:
-                fig=go.Figure(go.Bar(x=df_v.head(15)["Ticker"],y=df_v.head(15)["Volatility %"],
-                    marker_color=df_v.head(15)["Volatility %"],marker_colorscale="Viridis",
-                    text=df_v.head(15)["Volatility %"].round(1),textposition="auto"))
-                fig.update_layout(template="plotly_dark",height=350,showlegend=False,title="Top 15 Volatility")
-                st.plotly_chart(fig,use_container_width=True)
-            with c2:
-                fig2=go.Figure(go.Scatter(x=df_v["Volatility %"],y=df_v["Change 5D %"],mode="markers",
-                    marker=dict(size=df_v["Range %"]*1.5,color=df_v["Change 5D %"],colorscale="RdYlGn",showscale=True),
-                    text=df_v["Ticker"],hovertemplate="<b>%{text}</b><br>Vol:%{x:.1f}%<br>Chg:%{y:.1f}%"))
-                fig2.update_layout(template="plotly_dark",height=350,title="Vol vs Return")
-                st.plotly_chart(fig2,use_container_width=True)
-            st.dataframe(df_v.style.background_gradient(subset=["Volatility %","Range %"],cmap="YlOrRd")
-                .background_gradient(subset=["Change 5D %"],cmap="RdYlGn",vmin=-20,vmax=20),
-                use_container_width=True,height=400)
-            st.download_button("📥 CSV Vol",df_v.to_csv(index=False),f"vol_{now.strftime('%Y%m%d_%H%M')}.csv","text/csv")
-        if errs:
-            with st.expander(f"⚠️ {len(errs)} errors"):
-                for e in errs[:20]: st.text(e)
-        elif not scanned:
-            c1,c2,c3=st.columns(3)
-            with c1: st.info("🎯 **Bid>Offer Scanner**\n\nDeteksi anomaly bid > offer. Signal buyer aggressive.")
-            with c2: st.info("⚡ **Volatility Scanner**\n\nSaham paling volatile untuk trading.")
-            with c3: st.info("📁 **Custom List**\n\nUpload .txt berisi daftar ticker via sidebar.")
-
-
-    elif "Open=Low" in mode:
-        st.markdown("""<div style='display:flex;align-items:center;gap:10px;margin-bottom:24px;'>
-        <span style='width:3px;height:24px;background:linear-gradient(180deg,#00d4aa,transparent);border-radius:2px;display:inline-block;'></span>
-        <h2 style='color:#e6edf3;font-size:1.1rem;font-weight:600;margin:0;'>📈 Open=Low Scanner</h2></div>""",unsafe_allow_html=True)
-        st.markdown("""
-        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 24px;">
-            <span style="width: 3px; height: 24px; background: linear-gradient(180deg, #00d4aa, transparent); 
-                         border-radius: 2px; display: inline-block;"></span>
-            <h2 style="color: #e6edf3; font-size: 1.1rem; font-weight: 600; margin: 0; letter-spacing: 0.3px; font-family: 'Space Grotesk', sans-serif;">
-                Scanner Open = Low &nbsp;<span style="color: #484f58; font-weight: 400; font-size: 0.85rem; font-family: 'JetBrains Mono', monospace;">+ KENAIKAN ≥5%</span>
-            </h2>
-        </div>
-        """, unsafe_allow_html=True)
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            periode = st.selectbox(
-                "Periode Analisis",
-                ["7 Hari", "14 Hari", "30 Hari", "90 Hari", "180 Hari", "365 Hari"],
-                index=2
-            )
-        with col2:
-            min_kenaikan = st.slider("Minimal Kenaikan (%)", 1, 20, 5)
-        with col3:
-            limit_saham = st.number_input("Limit Hasil", min_value=5, max_value=100, value=20)
-
-        st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
-
-        col_par1, col_par2 = st.columns([1, 2])
-        with col_par1:
-            use_parallel = st.checkbox("⚡ Parallel Scanning", value=True)
-        with col_par2:
+    # ──────────────────────────────────────────────────────────
+    # TAB: SCANNER
+    # ──────────────────────────────────────────────────────────
+    with tab_scanner:
+        stocks = st.session_state.get('stocks', [])
+        if not stocks:
             st.markdown("""
-            <div style="background: rgba(0,212,170,0.05); border: 1px solid rgba(0,212,170,0.15); 
-                        padding: 8px 14px; border-radius: 8px; margin-top: 2px;">
-                <span style="color: #00d4aa; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;">
-                    ⚡ Parallel mode &nbsp;·&nbsp; 5–10× lebih cepat
-                </span>
-            </div>
-            """, unsafe_allow_html=True)
-
-        periode_map = {"7 Hari": 7, "14 Hari": 14, "30 Hari": 30, "90 Hari": 90, "180 Hari": 180, "365 Hari": 365}
-        hari = periode_map[periode]
-
-        st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
-
-        if st.button("🚀  MULAI SCANNING", type="primary", use_container_width=True):
-            reset_session_data()
-
-            if filter_type == "Pilih Manual" and selected_stocks:
-                stocks_to_scan = selected_stocks
-            elif filter_type == "Filter Tingkatan" and selected_levels:
-                stocks_to_scan = get_stocks_by_level(selected_levels)
-            else:
-                stocks_to_scan = STOCKS_LIST
-
-            estimasi_detik = len(stocks_to_scan) * (0.1 if use_parallel else 0.5)
-
-            st.markdown(f"""
-            <div style="background: rgba(77,166,255,0.06); border: 1px solid rgba(77,166,255,0.15); 
-                        padding: 12px 16px; border-radius: 10px; margin: 12px 0;
-                        display: flex; align-items: center; gap: 12px;">
-                <span style="color: #4da6ff; font-size: 1.2rem;">⏳</span>
-                <div>
-                    <span style="color: #4da6ff; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; font-weight: 600;">
-                        {len(stocks_to_scan)} SAHAM
-                    </span>
-                    <span style="color: #484f58; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; margin-left: 12px;">
-                        estimasi ~{estimasi_detik:.0f} detik
-                    </span>
+            <div class='empty-state'>
+                <div class='icon'>⚡</div>
+                <div class='title'>AKSARA IDX v2.0</div>
+                <div class='sub'>
+                    RSI WILDER · MACD FULL SERIES · RS vs IHSG<br>
+                    SECTOR MOMENTUM · FOREIGN FLOW REAL · BACKTEST REALISTIS<br>
+                    BANDARMOLOGI · CHART PATTERN · WYCKOFF · RISK MANAGER
                 </div>
             </div>
             """, unsafe_allow_html=True)
+            return
 
-            start_time = time.time()
+        strong = sum(1 for s in stocks if s.get("score", 0) >= 72)
+        buy    = sum(1 for s in stocks if 58 <= s.get("score", 0) < 72)
+        watch  = sum(1 for s in stocks if 45 <= s.get("score", 0) < 58)
+        rs_out = sum(1 for s in stocks if s.get("rs_outperform", False))
 
-            if use_parallel:
-                results = scan_stocks_parallel(
-                    stocks_to_scan, scan_open_low_pattern,
-                    periode_hari=hari, min_kenaikan=min_kenaikan
-                )
-            else:
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                results = []
-                for i, stock in enumerate(stocks_to_scan):
-                    status_text.markdown(f"<span style='color:#8b949e; font-family:monospace; font-size:0.82rem;'>Memproses {stock}... ({i+1}/{len(stocks_to_scan)})</span>", unsafe_allow_html=True)
-                    try:
-                        result = scan_open_low_pattern(stock, periode_hari=hari, min_kenaikan=min_kenaikan)
-                        if result:
-                            results.append(result)
-                    except:
-                        pass
-                    progress_bar.progress((i + 1) / len(stocks_to_scan))
-                    time.sleep(0.3)
-                progress_bar.empty()
-                status_text.empty()
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
+        metric_card(col1, "📋 TOTAL",        len(stocks))
+        metric_card(col2, "🔥 STRONG+",      strong, "#00ff88")
+        metric_card(col3, "🟢 BUY",          buy,    "#7dff6b")
+        metric_card(col4, "🟡 WATCH",        watch,  "#ffd700")
+        metric_card(col5, "📈 RS Outperform",rs_out, "#00c8ff")
+        metric_card(col6, "🕐 SCAN",         st.session_state.get('scan_time', '-'), "#8b949e")
 
-            total_time = time.time() - start_time
+        st.markdown("<br>", unsafe_allow_html=True)
+        search = st.text_input("🔍 Cari ticker:", "", placeholder="Contoh: BBCA")
+        display_stocks = ([s for s in stocks if search.upper() in s.get("ticker", "")]
+                          if search else stocks)
 
-            if results:
-                df_results = pd.DataFrame(results)
-                df_results = df_results.sort_values('frekuensi', ascending=False).head(limit_saham)
+        st.subheader("📋 HASIL SCAN")
+        table_data = []
+        for s in display_stocks[:100]:
+            b = s.get("bandar", {}); f = s.get("foreign", {})
+            _rs_v = s.get("rs_score", 50)
+            rs_icon = "⭐" if _rs_v > 55 else ("➡️" if _rs_v >= 45 else "⬇️")
+            table_data.append({
+                "Ticker":  s.get("ticker", ""),
+                "Harga":   fmt_price(s.get("price", 0)),
+                "Change%": f"{s.get('change', 0):+.1f}%",
+                "Score":   s.get("score", 0),
+                "Rating":  f"{rating_icon(s.get('rating',''))} {s.get('rating','')}",
+                "Konf":    s.get("confirmations", 0),
+                "RSI":     s.get("rsi", 0),
+                "Vol":     f"{s.get('vol_ratio', 0):.1f}x",
+                "ADX":     s.get("adx", 0),
+                "RS":      f"{rs_icon}{s.get('rs_score',50):.0f}",
+                "Sektor#": f"#{s.get('sec_rank',7)}",
+                "Bandar":  (b.get("fase","").split(" ")[1] if len(b.get("fase","").split(" ")) > 1 else ""),
+                "Foreign": f.get("flow_status", ""),
+                "Wyckoff": s.get("wyckoff", ""),
+                "Sektor":  s.get("sector", ""),
+            })
 
-                # ── SUCCESS CARD ──
-                st.markdown(f"""
-                <div style="background: linear-gradient(135deg, #0d1f17 0%, #0d1a24 100%);
-                            border: 1px solid rgba(0,212,170,0.25); border-radius: 16px;
-                            padding: 28px 32px; margin: 24px 0 32px 0;
-                            box-shadow: 0 0 40px rgba(0,212,170,0.08), inset 0 1px 0 rgba(0,212,170,0.1);
-                            position: relative; overflow: hidden;">
-                    <div style="position: absolute; top: -40px; right: -40px; width: 160px; height: 160px;
-                                 background: radial-gradient(circle, rgba(0,212,170,0.08) 0%, transparent 70%);
-                                 border-radius: 50%;"></div>
-                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px;">
+        st.dataframe(
+            pd.DataFrame(table_data), use_container_width=True, hide_index=True,
+            column_config={"Score": st.column_config.ProgressColumn(
+                "Score", min_value=0, max_value=100, format="%d")}
+        )
+
+        csv_data = export_to_csv(display_stocks[:300])
+        st.download_button("📥 Export CSV", csv_data,
+                           file_name=f"scan_v2_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                           mime="text/csv")
+
+        st.divider()
+        st.subheader("📈 DETAIL PER SAHAM")
+        ticker_options = [s.get("ticker", "") for s in stocks[:50]]
+        selected_ticker = st.selectbox("Pilih saham untuk detail:", ticker_options)
+
+        if selected_ticker:
+            stock_data = next((s for s in stocks if s.get("ticker") == selected_ticker), None)
+            if stock_data:
+                b  = stock_data.get("bandar", {})
+                f  = stock_data.get("foreign", {})
+                tp = stock_data.get("trade_plan", {})
+                rs = stock_data.get("rs_data", {})
+
+                col_d1, col_d2, col_d3, col_d4 = st.columns(4)
+                with col_d1: st.metric("Harga",      fmt_price(stock_data.get("price", 0)),
+                                       f"{stock_data.get('change', 0):+.1f}%")
+                with col_d2: st.metric("Score",      f"{stock_data.get('score', 0)}/100")
+                with col_d3: st.metric("Rating",     stock_data.get("rating", ""))
+                with col_d4:
+                    _rs_val = stock_data.get('rs_score', 50)
+                    _rs_label = ("⭐ Outperform" if _rs_val > 55
+                                 else ("➡️ Netral" if _rs_val >= 45
+                                       else "⬇️ Underperform"))
+                    st.metric("RS vs IHSG", f"{_rs_val:.0f}/100", _rs_label)
+
+                det_tab1, det_tab2, det_tab3, det_tab4, det_tab5, det_tab6 = st.tabs([
+                    "📊 Teknikal", "📈 RS & Sektor", "🐋 Bandar", "🌏 Foreign", "💰 Trading Plan", "🤖 AI"
+                ])
+
+                with det_tab1:
+                    col_tek1, col_tek2 = st.columns(2)
+                    with col_tek1:
+                        st.markdown("**📈 Indikator (v2.0 — Fixed)**")
+                        st.markdown(f"""
+                        - **RSI (Wilder):** {stock_data.get('rsi', 0)} ← *akurat seperti TradingView*
+                        - **MACD:** {stock_data.get('macd', 0):.4f} (hist: {stock_data.get('macd_hist', 0):.4f}) ← *full series*
+                        - **MACD Signal:** {stock_data.get('macd_signal', 0):.4f}
+                        - **Stochastic:** %K {stock_data.get('stoch_k', 0)} / %D {stock_data.get('stoch_d', 0)}
+                        - **ADX:** {stock_data.get('adx', 0)}
+                        - **BB Position:** {stock_data.get('bb_pos', 0)}%
+                        - **Support:** {fmt_price(stock_data.get('support', 0)) if stock_data.get('support') else 'N/A'}
+                        - **Resistance:** {fmt_price(stock_data.get('resistance', 0)) if stock_data.get('resistance') else 'N/A'}
+                        """)
+                    with col_tek2:
+                        st.markdown("**📊 Moving Averages & Position**")
+                        st.markdown(f"""
+                        - **MA50:** {'✅ Di atas' if stock_data.get('above_ma50') else '❌ Di bawah'}
+                        - **MA200:** {'✅ Di atas' if stock_data.get('above_ma200') else '❌ Di bawah'}
+                        - **Golden Cross:** {'✅ Ya' if stock_data.get('golden_cross') else '❌ Tidak'}
+                        - **52W Position:** {stock_data.get('pos52w', 0)}%
+                        - **Wyckoff Phase:** {stock_data.get('wyckoff', '')}
+                        - **Volume Ratio:** {stock_data.get('vol_ratio', 0):.2f}x
+                        - **ATR:** {fmt_price(stock_data.get('atr', 0))}
+                        """)
+                    st.markdown("**🕯️ Chart Pattern**")
+                    patterns = stock_data.get('patterns', [])
+                    if patterns:
+                        for p in patterns:
+                            color = ("#00ff88" if p["signal"] == "BULLISH" else
+                                     "#ff4444" if p["signal"] == "BEARISH" else "#ffd700")
+                            st.markdown(
+                                f"<span style='background:{color}22;border:1px solid {color}44;"
+                                f"color:{color};border-radius:4px;padding:3px 8px;font-size:0.75rem;"
+                                f"margin:2px;display:inline-block'>{p['name']} {p['confidence']}% · {p['description']}</span>",
+                                unsafe_allow_html=True)
+                    else:
+                        st.info("Tidak ada pattern terdeteksi")
+                    st.markdown("**⚡ Sinyal**")
+                    for sig in stock_data.get('signals', []):
+                        st.markdown(f"<span class='signal-tag'>{sig}</span>", unsafe_allow_html=True)
+
+                with det_tab2:
+                    st.markdown("### 📈 RELATIVE STRENGTH vs IHSG")
+                    rs_score = stock_data.get("rs_score", 50)
+                    rs_ratio = stock_data.get("rs_ratio", 1.0)
+                    rs_trend = stock_data.get("rs_trend", "STABLE")
+                    rs_1m    = stock_data.get("rs_1m", 0)
+                    rs_3m    = stock_data.get("rs_3m", 0)
+                    outperform = stock_data.get("rs_outperform", False)
+
+                    rs_color = "#00ff88" if outperform else "#ff4444"
+                    rs_text  = "⭐ OUTPERFORM IHSG" if outperform else "⬇️ UNDERPERFORM IHSG"
+
+                    st.markdown(f"""
+                    <div class='fase-card' style='background:{rs_color}0d;border-left-color:{rs_color}'>
+                        <span class='fase-icon'>{'⭐' if outperform else '📉'}</span>
                         <div>
-                            <p style="color: #00d4aa; font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; 
-                                      letter-spacing: 2px; text-transform: uppercase; margin: 0 0 6px 0;">SCAN BERHASIL</p>
-                            <p style="color: #e6edf3; font-size: 2.8rem; font-weight: 700; margin: 0; line-height: 1; 
-                                      font-family: 'JetBrains Mono', monospace;">
-                                {len(df_results)}<span style="color: #00d4aa;">.</span>
-                            </p>
-                            <p style="color: #8b949e; font-size: 0.85rem; margin: 6px 0 0 0;">Saham pola Open = Low ditemukan</p>
-                        </div>
-                        <div style="display: flex; gap: 24px;">
-                            <div style="text-align: center; padding: 12px 20px; background: rgba(255,255,255,0.03); 
-                                        border-radius: 10px; border: 1px solid #21262d;">
-                                <p style="color: #484f58; font-size: 0.68rem; letter-spacing: 1.5px; text-transform: uppercase; 
-                                          font-family: 'JetBrains Mono', monospace; margin: 0 0 4px 0;">DURASI</p>
-                                <p style="color: #e6edf3; font-size: 1.4rem; font-weight: 700; margin: 0; 
-                                          font-family: 'JetBrains Mono', monospace;">{total_time:.0f}<span style="color: #484f58; font-size: 0.9rem;">s</span></p>
-                            </div>
-                            <div style="text-align: center; padding: 12px 20px; background: rgba(255,255,255,0.03); 
-                                        border-radius: 10px; border: 1px solid #21262d;">
-                                <p style="color: #484f58; font-size: 0.68rem; letter-spacing: 1.5px; text-transform: uppercase; 
-                                          font-family: 'JetBrains Mono', monospace; margin: 0 0 4px 0;">PERIODE</p>
-                                <p style="color: #e6edf3; font-size: 1.4rem; font-weight: 700; margin: 0; 
-                                          font-family: 'JetBrains Mono', monospace;">{hari}<span style="color: #484f58; font-size: 0.9rem;">d</span></p>
-                            </div>
-                            <div style="text-align: center; padding: 12px 20px; background: rgba(255,255,255,0.03); 
-                                        border-radius: 10px; border: 1px solid #21262d;">
-                                <p style="color: #484f58; font-size: 0.68rem; letter-spacing: 1.5px; text-transform: uppercase; 
-                                          font-family: 'JetBrains Mono', monospace; margin: 0 0 4px 0;">MIN GAIN</p>
-                                <p style="color: #e6edf3; font-size: 1.4rem; font-weight: 700; margin: 0; 
-                                          font-family: 'JetBrains Mono', monospace;">{min_kenaikan}<span style="color: #484f58; font-size: 0.9rem;">%</span></p>
+                            <div class='fase-text' style='color:{rs_color}'>{rs_text}</div>
+                            <div style='font-family:"JetBrains Mono",monospace;font-size:0.72rem;color:var(--text-muted);margin-top:4px'>
+                                RS Ratio: {rs_ratio:.3f} · Trend: {rs_trend}
                             </div>
                         </div>
                     </div>
-                </div>
-                """, unsafe_allow_html=True)
+                    """, unsafe_allow_html=True)
 
-                # ── SECTION LABEL ──
-                st.markdown("""
-                <div style="display: flex; align-items: center; gap: 10px; margin: 24px 0 12px 0;">
-                    <span style="width: 3px; height: 18px; background: #00d4aa; border-radius: 2px; display: inline-block;"></span>
-                    <p style="color: #8b949e; font-size: 0.72rem; letter-spacing: 2px; text-transform: uppercase; 
-                              font-family: 'JetBrains Mono', monospace; margin: 0;">Hasil Scanning · Free Float · FCA · Tingkatan</p>
-                </div>
-                """, unsafe_allow_html=True)
+                    col_rs1, col_rs2, col_rs3, col_rs4 = st.columns(4)
+                    metric_card(col_rs1, "RS Score",  f"{rs_score:.0f}/100", rs_color)
+                    metric_card(col_rs2, "RS Ratio",  f"{rs_ratio:.3f}",
+                                "#00ff88" if rs_ratio > 1 else "#ff4444")
+                    metric_card(col_rs3, "RS 1 Bulan",f"{rs_1m:+.2f}%",
+                                "#00ff88" if rs_1m > 0 else "#ff4444")
+                    metric_card(col_rs4, "RS 3 Bulan",f"{rs_3m:+.2f}%",
+                                "#00ff88" if rs_3m > 0 else "#ff4444")
 
-                enhanced_results = []
-                for _, row in df_results.iterrows():
-                    saham = row['saham']
-                    free_float = get_free_float_value(saham)
-                    holders = get_free_float_holders(saham)
-                    level = get_stock_level(saham)
+                    st.markdown("---")
+                    st.markdown("### 🏭 SECTOR MOMENTUM")
+                    sec_score = stock_data.get("sec_score", 50)
+                    sec_rank  = stock_data.get("sec_rank", 7)
+                    sec_change= stock_data.get("sec_change", 0)
+                    sec_name  = stock_data.get("sector", "")
 
-                    total_inst_asing = 0
-                    for p in holders:
-                        persen_dalam_ff = (p['persen'] / free_float) * 100 if free_float > 0 else 0
-                        total_inst_asing += persen_dalam_ff
-
-                    sisa_ritel = 100 - total_inst_asing
-                    potensi = analyze_goreng_potential(free_float)
-                    fca_status = '⚠️' if is_fca(saham) else '—'
-
-                    enhanced_results.append({
-                        'Saham': saham,
-                        'Level': level,
-                        'Frek': row['frekuensi'],
-                        'Prob_Val': row['probabilitas'],
-                        'Prob': f"{row['probabilitas']:.0f}%",
-                        'Gain_Val': row['rata_rata_kenaikan'],
-                        'Gain': f"{row['rata_rata_kenaikan']:.0f}%",
-                        'FF_Val': free_float,
-                        'FF': f"{free_float:.0f}%",
-                        'Inst_Val': total_inst_asing,
-                        'Inst': f"{total_inst_asing:.0f}%",
-                        'Ritel_Val': sisa_ritel,
-                        'Ritel': f"{sisa_ritel:.0f}%",
-                        'FCA': fca_status,
-                        'Pot': potensi
-                    })
-
-                enhanced_df = pd.DataFrame(enhanced_results)
-                display_df = enhanced_df[['Saham', 'Level', 'Frek', 'Prob', 'Gain', 'FF', 'Inst', 'Ritel', 'FCA', 'Pot']]
-                st.dataframe(display_df, use_container_width=True, height=500, hide_index=True)
-
-                st.session_state['scan_results'] = df_results
-                st.session_state['enhanced_df'] = enhanced_df
-                st.session_state['display_df'] = display_df
-                st.session_state['watchlist_df'] = None
-
-                # ── CHART ──
-                st.markdown("""
-                <div style="display: flex; align-items: center; gap: 10px; margin: 28px 0 12px 0;">
-                    <span style="width: 3px; height: 18px; background: #4da6ff; border-radius: 2px; display: inline-block;"></span>
-                    <p style="color: #8b949e; font-size: 0.72rem; letter-spacing: 2px; text-transform: uppercase; 
-                              font-family: 'JetBrains Mono', monospace; margin: 0;">Top 10 · Frekuensi Tertinggi</p>
-                </div>
-                """, unsafe_allow_html=True)
-
-                top10_df = df_results.head(10).copy()
-                fig = go.Figure()
-                fig.add_trace(go.Bar(
-                    x=top10_df['saham'],
-                    y=top10_df['frekuensi'],
-                    marker=dict(
-                        color=top10_df['probabilitas'].tolist(),
-                        colorscale='Teal',
-                        showscale=True,
-                        colorbar=dict(
-                            title=dict(
-                                text="Prob (%)",
-                                font=dict(color='#8b949e', size=10, family='JetBrains Mono')
-                            ),
-                            tickfont=dict(color='#8b949e', size=10, family='JetBrains Mono'),
-                            outlinecolor='#21262d',
-                            outlinewidth=1
-                        ),
-                        line=dict(width=0),
-                        opacity=0.9
-                    ),
-                    hovertemplate='<b>%{x}</b><br>Frekuensi: %{y}<br>Prob: %{marker.color:.1f}%<extra></extra>'
-                ))
-                fig.update_layout(
-                    plot_bgcolor='#0d1117',
-                    paper_bgcolor='#0d1117',
-                    font=dict(family='JetBrains Mono', color='#8b949e', size=11),
-                    xaxis=dict(
-                        categoryorder='array',
-                        categoryarray=top10_df['saham'].tolist(),
-                        gridcolor='#21262d',
-                        tickfont=dict(color='#8b949e'),
-                        title=dict(text='', font=dict(color='#484f58'))
-                    ),
-                    yaxis=dict(
-                        gridcolor='#21262d',
-                        tickfont=dict(color='#8b949e'),
-                        title=dict(text='Frekuensi', font=dict(color='#484f58', size=10))
-                    ),
-                    height=360,
-                    margin=dict(l=40, r=60, t=20, b=40),
-                    hoverlabel=dict(bgcolor='#161b22', bordercolor='#30363d', font=dict(color='#e6edf3'))
-                )
-                st.plotly_chart(fig, use_container_width=True)
-                st.caption(f"Urutan: {' · '.join(top10_df['saham'].tolist())}")
-
-                # ── AI ANALYSIS ──
-                st.markdown("""
-                <div style="display: flex; align-items: center; gap: 10px; margin: 32px 0 16px 0;">
-                    <span style="width: 3px; height: 18px; background: #c084fc; border-radius: 2px; display: inline-block;"></span>
-                    <p style="color: #8b949e; font-size: 0.72rem; letter-spacing: 2px; text-transform: uppercase; 
-                              font-family: 'JetBrains Mono', monospace; margin: 0;">Analisis AI · Top 5 Saham</p>
-                </div>
-                """, unsafe_allow_html=True)
-
-                for idx, (i, row) in enumerate(df_results.head(5).iterrows()):
-                    analysis = analyze_pattern(row.to_dict())
-                    level = get_stock_level(row['saham'])
-
-                    with st.expander(f"#{idx+1} &nbsp; {row['saham']} &nbsp;·&nbsp; {level} &nbsp;·&nbsp; Prob {row['probabilitas']:.1f}%"):
-                        col1, col2, col3, col4 = st.columns(4)
-                        with col1:
-                            st.metric("Probabilitas", f"{row['probabilitas']:.1f}%")
-                        with col2:
-                            st.metric("Rata Gain", f"{row['rata_rata_kenaikan']:.1f}%")
-                        with col3:
-                            st.metric("Max Gain", f"{row['max_kenaikan']:.1f}%")
-                        with col4:
-                            st.metric("Frekuensi", f"{row['frekuensi']}x")
-
+                    sm = st.session_state.get("sector_momentum", {})
+                    if sm and sec_name in sm:
+                        sec_info = sm[sec_name]
+                        sec_color = ("#00ff88" if sec_change > 1 else
+                                     "#ffd700" if sec_change > 0 else "#ff4444")
                         st.markdown(f"""
-                        <div style="background: rgba(192,132,252,0.05); border: 1px solid rgba(192,132,252,0.15); 
-                                    border-radius: 10px; padding: 14px 16px; margin: 12px 0;">
-                            <p style="color: #484f58; font-size: 0.68rem; letter-spacing: 2px; text-transform: uppercase;
-                                      font-family: 'JetBrains Mono', monospace; margin: 0 0 8px 0;">AI SUMMARY</p>
-                            <p style="color: #c9d1d9; font-size: 0.88rem; margin: 0; line-height: 1.6;">{analysis}</p>
+                        <div style='background:var(--bg-elevated);border:1px solid var(--border);
+                        border-radius:var(--radius-md);padding:16px;margin-bottom:12px'>
+                            <div style='font-family:"Syne",sans-serif;font-size:1rem;font-weight:800;
+                            color:{sec_color};margin-bottom:8px'>
+                                Sektor {sec_name} — Rank #{sec_rank}/13
+                            </div>
+                            <div style='font-family:"JetBrains Mono",monospace;font-size:0.75rem;color:var(--text-secondary)'>
+                                Trend: {sec_info.get('trend','N/A')} · 1W: {sec_change:+.2f}% · 1M: {sec_info.get('change_1m',0):+.2f}%
+                            </div>
                         </div>
                         """, unsafe_allow_html=True)
 
-                        free_float = get_free_float_value(row['saham'])
-                        st.markdown(display_free_float_info(row['saham'], free_float), unsafe_allow_html=True)
+                        # Show all sectors ranked
+                        st.markdown("**Ranking Semua Sektor:**")
+                        sorted_sectors = sorted(sm.items(), key=lambda x: x[1]["score"], reverse=True)
+                        for rank, (sn, sd) in enumerate(sorted_sectors, 1):
+                            bar_w = int(sd["score"])
+                            clr   = "#00ff88" if sd["change_1w"] > 1 else "#ffd700" if sd["change_1w"] > 0 else "#ff4444"
+                            highlight = " style='background:rgba(0,200,255,0.05);border-radius:4px'" if sn == sec_name else ""
+                            st.markdown(f"""
+                            <div class='info-row'{highlight}>
+                                <span>#{rank} <b style='color:{"#00c8ff" if sn==sec_name else "var(--text-primary)"}'>{sn}</b></span>
+                                <span style='color:{clr}'>{sd["change_1w"]:+.2f}% (1W)</span>
+                            </div>
+                            """, unsafe_allow_html=True)
+                    else:
+                        st.info("Data sektor belum dimuat. Jalankan scan untuk memuat.")
 
-                # ── WATCHLIST ──
-                st.markdown("""
-                <div style="display: flex; align-items: center; gap: 10px; margin: 32px 0 16px 0;">
-                    <span style="width: 3px; height: 18px; background: #e3b341; border-radius: 2px; display: inline-block;"></span>
-                    <p style="color: #8b949e; font-size: 0.72rem; letter-spacing: 2px; text-transform: uppercase; 
-                              font-family: 'JetBrains Mono', monospace; margin: 0;">Watchlist Generator</p>
-                </div>
-                """, unsafe_allow_html=True)
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    min_gain_filter = st.slider("Minimal Gain Rata-rata (%)", 3, 10, 5, key="min_gain")
-                with col2:
-                    top_n = st.number_input("Jumlah Saham", 5, 30, 15, key="top_n")
-
-                if 'enhanced_df' in st.session_state:
-                    df_watchlist = st.session_state['enhanced_df'][st.session_state['enhanced_df']['Gain_Val'] >= min_gain_filter].copy()
-                else:
-                    df_watchlist = enhanced_df[enhanced_df['Gain_Val'] >= min_gain_filter].copy()
-
-                if len(df_watchlist) > 0:
-                    max_prob = df_watchlist['Prob_Val'].max()
-                    max_gain = df_watchlist['Gain_Val'].max()
-
-                    if max_prob > 0 and max_gain > 0:
-                        df_watchlist['skor'] = (
-                            (df_watchlist['Prob_Val'] / max_prob) * 50 +
-                            (df_watchlist['Gain_Val'] / max_gain) * 50
-                        )
-                        df_watchlist = df_watchlist.nlargest(top_n, 'skor')
-
+                with det_tab3:
                     st.markdown(f"""
-                    <div style="background: linear-gradient(135deg, #0f1a0f 0%, #0a1520 100%);
-                                border: 1px solid rgba(227,179,65,0.2); border-radius: 14px;
-                                padding: 20px 24px; margin: 16px 0 20px 0;
-                                box-shadow: 0 0 30px rgba(227,179,65,0.05);">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                <p style="color: #e3b341; font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; 
-                                          letter-spacing: 2px; text-transform: uppercase; margin: 0 0 4px 0;">WATCHLIST TRADING</p>
-                                <p style="color: #e6edf3; font-size: 1rem; font-weight: 600; margin: 0; font-family: 'Space Grotesk', sans-serif;">
-                                    {datetime.now().strftime('%d %B %Y')}
-                                </p>
-                            </div>
-                            <div style="background: rgba(227,179,65,0.1); border: 1px solid rgba(227,179,65,0.2); 
-                                        padding: 8px 16px; border-radius: 8px;">
-                                <span style="color: #e3b341; font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; font-weight: 600;">
-                                    ⚡ PANTAU 15 MENIT PERTAMA
-                                </span>
-                            </div>
-                        </div>
+                    <div class='fase-card' style='background:{b.get("fase_color","#8b949e")}0d;
+                    border-left-color:{b.get("fase_color","#8b949e")}'>
+                        <span class='fase-icon'>{b.get('fase_emoji','')}</span>
+                        <span class='fase-text' style='color:{b.get("fase_color","#8b949e")}'>{b.get('fase','N/A')}</span>
                     </div>
                     """, unsafe_allow_html=True)
-
-                    watchlist_data = []
-                    for i, (idx, row) in enumerate(df_watchlist.iterrows()):
-                        if row['Prob_Val'] >= 20 and row['Gain_Val'] >= 7:
-                            rekom = "🔥 PRIORITAS"
-                        elif row['Prob_Val'] >= 15 and row['Gain_Val'] >= 5:
-                            rekom = "⚡ LAYAK"
-                        else:
-                            rekom = "📌 PANTAU"
-
-                        level_singkat = {'💎 Blue Chip': 'BC', '📈 Second Liner': 'SL', '🎯 Third Liner': 'TL'}.get(row['Level'], '')
-
-                        watchlist_data.append({
-                            "Rank": i + 1,
-                            "Saham": row['Saham'],
-                            "Lvl": level_singkat,
-                            "Prob": row['Prob'],
-                            "Gain": row['Gain'],
-                            "FF": row['FF'],
-                            "FCA": row['FCA'],
-                            "Pot": row['Pot'],
-                            "Rekom": rekom
-                        })
-
-                    watchlist_df = pd.DataFrame(watchlist_data)
-                    st.session_state['watchlist_df'] = watchlist_df
-                    st.dataframe(watchlist_df, use_container_width=True, hide_index=True, height=400)
-
-                    # ── EXPORT ──
-                    st.markdown("""
-                    <div style="display: flex; align-items: center; gap: 10px; margin: 28px 0 12px 0;">
-                        <span style="width: 3px; height: 18px; background: #4da6ff; border-radius: 2px; display: inline-block;"></span>
-                        <p style="color: #8b949e; font-size: 0.72rem; letter-spacing: 2px; text-transform: uppercase; 
-                                  font-family: 'JetBrains Mono', monospace; margin: 0;">Export Data</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                    tab_exp1, tab_exp2 = st.tabs(["📋 Watchlist", "📊 Hasil Scanning"])
-
-                    with tab_exp1:
-                        if 'watchlist_df' in st.session_state and st.session_state['watchlist_df'] is not None:
-                            create_download_buttons(st.session_state['watchlist_df'], "watchlist", "watchlist_tab")
-
-                    with tab_exp2:
-                        if 'display_df' in st.session_state:
-                            create_download_buttons(st.session_state['display_df'], "scan", "scan_tab")
-
-                else:
-                    st.warning(f"Tidak ada saham dengan gain minimal {min_gain_filter}%")
-
-            else:
-                st.markdown("""
-                <div style="background: rgba(255,92,92,0.06); border: 1px solid rgba(255,92,92,0.2); 
-                            border-radius: 12px; padding: 24px; text-align: center; margin: 16px 0;">
-                    <p style="color: #ff5c5c; font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; margin: 0;">
-                        ⚠ &nbsp; Tidak ditemukan saham dengan kriteria Open = Low
-                    </p>
-                </div>
-                """, unsafe_allow_html=True)
-
-    elif "Low Float" in mode:
-        st.markdown("""<div style='display:flex;align-items:center;gap:10px;margin-bottom:24px;'>
-        <span style='width:3px;height:24px;background:linear-gradient(180deg,#4da6ff,transparent);border-radius:2px;display:inline-block;'></span>
-        <h2 style='color:#e6edf3;font-size:1.1rem;font-weight:600;margin:0;'>🔍 Low Float Scanner</h2></div>""",unsafe_allow_html=True)
-        st.markdown("""
-        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 24px;">
-            <span style="width: 3px; height: 24px; background: linear-gradient(180deg, #4da6ff, transparent); 
-                         border-radius: 2px; display: inline-block;"></span>
-            <h2 style="color: #e6edf3; font-size: 1.1rem; font-weight: 600; margin: 0; letter-spacing: 0.3px; font-family: 'Space Grotesk', sans-serif;">
-                Scanner Low Float &nbsp;<span style="color: #484f58; font-weight: 400; font-size: 0.85rem; font-family: 'JetBrains Mono', monospace;">+ FREE FLOAT + FCA</span>
-            </h2>
-        </div>
-        """, unsafe_allow_html=True)
-
-        col1, col2 = st.columns(2)
-        with col1:
-            max_ff = st.slider("Maks Free Float (%)", 1, 50, 20)
-        with col2:
-            min_vol = st.number_input("Min Volume", min_value=0, value=0, step=100000)
-
-        st.markdown("""<p style="color: #484f58; font-size: 0.7rem; letter-spacing: 2px; text-transform: uppercase; 
-                      font-family: 'JetBrains Mono', monospace; margin: 16px 0 10px 0;">FILTER TINGKATAN</p>""", unsafe_allow_html=True)
-
-        col_lvl1, col_lvl2, col_lvl3 = st.columns(3)
-        with col_lvl1:
-            scan_blue = st.checkbox("💎 Blue Chip", value=True)
-        with col_lvl2:
-            scan_second = st.checkbox("📈 Second Liner", value=True)
-        with col_lvl3:
-            scan_third = st.checkbox("🎯 Third Liner", value=True)
-
-        col_par1, col_par2 = st.columns([1, 2])
-        with col_par1:
-            use_parallel = st.checkbox("⚡ Parallel Scanning", value=True)
-
-        st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
-
-        if st.button("🚀  SCAN LOW FLOAT", type="primary", use_container_width=True):
-            reset_session_data()
-
-            selected_levels = []
-            if scan_blue: selected_levels.append('Blue Chip')
-            if scan_second: selected_levels.append('Second Liner')
-            if scan_third: selected_levels.append('Third Liner')
-
-            if selected_stocks:
-                stocks_to_scan = selected_stocks
-            else:
-                stocks_to_scan = get_stocks_by_level(selected_levels) if selected_levels else STOCKS_LIST
-
-            start_time = time.time()
-
-            if use_parallel:
-                results = scan_stocks_parallel(stocks_to_scan, scan_low_float, max_public_float=max_ff, min_volume=min_vol)
-            else:
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                results = []
-                for i, stock in enumerate(stocks_to_scan):
-                    status_text.markdown(f"<span style='color:#8b949e; font-family:monospace; font-size:0.82rem;'>Memproses {stock}... ({i+1}/{len(stocks_to_scan)})</span>", unsafe_allow_html=True)
-                    try:
-                        result = scan_low_float([stock], max_ff, min_vol)
-                        if result: results.extend(result)
-                    except: pass
-                    progress_bar.progress((i + 1) / len(stocks_to_scan))
-                    time.sleep(0.3)
-                progress_bar.empty()
-                status_text.empty()
-
-            total_time = time.time() - start_time
-
-            if results:
-                df_results = pd.DataFrame(results)
-
-                st.markdown(f"""
-                <div style="background: linear-gradient(135deg, #0d1a24 0%, #0d1f1a 100%);
-                            border: 1px solid rgba(77,166,255,0.2); border-radius: 16px;
-                            padding: 24px 28px; margin: 20px 0 28px 0;">
-                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
-                        <div>
-                            <p style="color: #4da6ff; font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; 
-                                      letter-spacing: 2px; text-transform: uppercase; margin: 0 0 6px 0;">SCAN BERHASIL</p>
-                            <p style="color: #e6edf3; font-size: 2.5rem; font-weight: 700; margin: 0; 
-                                      font-family: 'JetBrains Mono', monospace; line-height: 1;">{len(df_results)}<span style="color: #4da6ff;">.</span></p>
-                            <p style="color: #8b949e; font-size: 0.82rem; margin: 6px 0 0 0;">Saham Low Float &lt; {max_ff}%</p>
-                        </div>
-                        <div style="text-align: center; padding: 12px 20px; background: rgba(255,255,255,0.03); 
-                                    border-radius: 10px; border: 1px solid #21262d;">
-                            <p style="color: #484f58; font-size: 0.68rem; letter-spacing: 1.5px; text-transform: uppercase; 
-                                      font-family: 'JetBrains Mono', monospace; margin: 0 0 4px 0;">DURASI</p>
-                            <p style="color: #e6edf3; font-size: 1.4rem; font-weight: 700; margin: 0; 
-                                      font-family: 'JetBrains Mono', monospace;">{total_time:.0f}<span style="color: #484f58; font-size: 0.9rem;">s</span></p>
-                        </div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                st.markdown("""
-                <div style="display: flex; align-items: center; gap: 10px; margin: 0 0 12px 0;">
-                    <span style="width: 3px; height: 18px; background: #4da6ff; border-radius: 2px; display: inline-block;"></span>
-                    <p style="color: #8b949e; font-size: 0.72rem; letter-spacing: 2px; text-transform: uppercase; 
-                              font-family: 'JetBrains Mono', monospace; margin: 0;">Hasil · Free Float · FCA</p>
-                </div>
-                """, unsafe_allow_html=True)
-
-                enriched_results = []
-                for _, row in df_results.iterrows():
-                    saham = row['saham']
-                    free_float = get_free_float_value(saham)
-                    kategori_singkat = get_kategori_singkatan(row['category'])
-                    potensi = analyze_goreng_potential(free_float)
-                    fca_status = '⚠️' if is_fca(saham) else '—'
-                    level_singkat = {'💎 Blue Chip': 'BC', '📈 Second Liner': 'SL', '🎯 Third Liner': 'TL'}.get(get_stock_level(saham), '')
-
-                    holders = get_free_float_holders(saham)
-                    total_inst_asing = sum((p['persen'] / free_float) * 100 for p in holders if free_float > 0)
-                    sisa_ritel = 100 - total_inst_asing
-
-                    enriched_results.append({
-                        'Saham': saham, 'Lvl': level_singkat,
-                        'FF': f"{free_float:.0f}%", 'Kat': kategori_singkat,
-                        'Vol(M)': f"{row['volume_avg']/1e6:.1f}", 'Volat': f"{row['volatility']:.0f}%",
-                        'Inst': f"{total_inst_asing:.0f}%", 'Ritel': f"{sisa_ritel:.0f}%",
-                        'FCA': fca_status, 'Pot': potensi
-                    })
-
-                enriched_df = pd.DataFrame(enriched_results)
-                st.dataframe(enriched_df, use_container_width=True, height=500, hide_index=True)
-
-                st.session_state['low_float_results'] = df_results
-                st.session_state['low_float_enriched'] = enriched_df
-
-                st.markdown("""
-                <div style="display: flex; align-items: center; gap: 10px; margin: 28px 0 12px 0;">
-                    <span style="width: 3px; height: 18px; background: #00d4aa; border-radius: 2px; display: inline-block;"></span>
-                    <p style="color: #8b949e; font-size: 0.72rem; letter-spacing: 2px; text-transform: uppercase; 
-                              font-family: 'JetBrains Mono', monospace; margin: 0;">Detail Free Float · Top 5</p>
-                </div>
-                """, unsafe_allow_html=True)
-
-                for _, row in df_results.head(5).iterrows():
-                    free_float = get_free_float_value(row['saham'])
-                    with st.expander(f"{row['saham']}  ·  {get_stock_level(row['saham'])}  ·  FF {free_float:.0f}%"):
-                        st.markdown(display_free_float_info(row['saham'], free_float), unsafe_allow_html=True)
-
-                # Charts
-                st.markdown("""
-                <div style="display: flex; align-items: center; gap: 10px; margin: 28px 0 12px 0;">
-                    <span style="width: 3px; height: 18px; background: #e3b341; border-radius: 2px; display: inline-block;"></span>
-                    <p style="color: #8b949e; font-size: 0.72rem; letter-spacing: 2px; text-transform: uppercase; 
-                              font-family: 'JetBrains Mono', monospace; margin: 0;">Distribusi & Analitik</p>
-                </div>
-                """, unsafe_allow_html=True)
-
-                col1, col2 = st.columns(2)
-
-                with col1:
-                    counts = df_results['category'].value_counts()
-                    fig = go.Figure(go.Pie(
-                        labels=counts.index,
-                        values=counts.values,
-                        hole=0.55,
-                        marker=dict(
-                            colors=['#00d4aa', '#0099cc', '#4da6ff', '#c084fc', '#e3b341'],
-                            line=dict(color='#0d1117', width=2)
-                        ),
-                        textfont=dict(color='#e6edf3', family='JetBrains Mono', size=10)
-                    ))
-                    fig.update_layout(
-                        plot_bgcolor='#0d1117', paper_bgcolor='#0d1117',
-                        font=dict(color='#8b949e', family='JetBrains Mono', size=10),
-                        legend=dict(font=dict(color='#8b949e', size=9)),
-                        title=dict(text='Kategori Float', font=dict(color='#8b949e', size=11), x=0.5),
-                        height=300, margin=dict(l=10, r=10, t=40, b=10)
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-
-                with col2:
-                    fig = go.Figure()
-                    vol_max = df_results['volume_avg'].max()
-                    marker_sizes = (df_results['volume_avg'] / vol_max * 20 + 5).tolist() if vol_max > 0 else [8] * len(df_results)
-                    fig.add_trace(go.Scatter(
-                        x=df_results['public_float'].tolist(),
-                        y=df_results['volatility'].tolist(),
-                        mode='markers',
-                        marker=dict(
-                            size=marker_sizes,
-                            color=df_results['volatility'].tolist(),
-                            colorscale='Teal',
-                            opacity=0.8,
-                            line=dict(width=0)
-                        ),
-                        text=df_results['saham'].tolist(),
-                        hovertemplate='<b>%{text}</b><br>Float: %{x:.1f}%<br>Volatilitas: %{y:.1f}%<extra></extra>'
-                    ))
-                    fig.update_layout(
-                        plot_bgcolor='#0d1117', paper_bgcolor='#0d1117',
-                        font=dict(color='#8b949e', family='JetBrains Mono', size=10),
-                        xaxis=dict(gridcolor='#21262d', title=dict(text='Free Float (%)', font=dict(color='#484f58', size=10))),
-                        yaxis=dict(gridcolor='#21262d', title=dict(text='Volatilitas (%)', font=dict(color='#484f58', size=10))),
-                        title=dict(text='FF vs Volatilitas', font=dict(color='#8b949e', size=11), x=0.5),
-                        height=300, margin=dict(l=50, r=20, t=40, b=50),
-                        hoverlabel=dict(bgcolor='#161b22', bordercolor='#30363d', font=dict(color='#e6edf3'))
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-
-                # Export
-                st.markdown("""
-                <div style="display: flex; align-items: center; gap: 10px; margin: 28px 0 12px 0;">
-                    <span style="width: 3px; height: 18px; background: #4da6ff; border-radius: 2px; display: inline-block;"></span>
-                    <p style="color: #8b949e; font-size: 0.72rem; letter-spacing: 2px; text-transform: uppercase; 
-                              font-family: 'JetBrains Mono', monospace; margin: 0;">Export Data</p>
-                </div>
-                """, unsafe_allow_html=True)
-
-                tab_exp1, tab_exp2 = st.tabs(["📊 Hasil Low Float", "📋 Info"])
-                with tab_exp1:
-                    create_download_buttons(
-                        st.session_state.get('low_float_enriched', enriched_df),
-                        "low_float", "low_float_tab"
-                    )
-                with tab_exp2:
-                    st.info("Gunakan hasil di atas untuk analisis lebih lanjut bro!")
-
-            else:
-                st.markdown("""
-                <div style="background: rgba(255,92,92,0.06); border: 1px solid rgba(255,92,92,0.2); 
-                            border-radius: 12px; padding: 24px; text-align: center; margin: 16px 0;">
-                    <p style="color: #ff5c5c; font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; margin: 0;">
-                        ⚠ &nbsp; Tidak ditemukan saham low float
-                    </p>
-                </div>
-                """, unsafe_allow_html=True)
-
-    else:  # Breakout IDX
-        modal=cfg.get("modal",10_000_000); st.session_state["modal"]=modal
-        col1,col2,col3=st.columns([2,1,1])
-        with col1: scan_btn=st.button("🔍 SCAN SEKARANG",type="primary",use_container_width=True)
-        with col2:
-            auto_r=st.toggle("⏱ Auto",value=st.session_state.get("auto_refresh",False))
-            st.session_state["auto_refresh"]=auto_r
-        with col3:
-            if st.session_state.get("last_scan_time"): st.caption(f"⏰ {st.session_state['last_scan_time']}")
-
-        if scan_btn:
-            tickers=cfg.get("tickers",ALL_TICKERS[:50])
-            prog=st.progress(0,"Memulai..."); ihsg_closes=sector_momentum=rti_data=None
-            if cfg.get("enable_rs",True):
-                with st.spinner("📥 IHSG..."):
-                    try:
-                        idf=yf.download("^JKSE",period="6mo",interval="1d",progress=False,auto_adjust=True)
-                        if idf is not None and not idf.empty:
-                            idf.columns=[c[0] if isinstance(c,tuple) else c for c in idf.columns]
-                            ihsg_closes=idf["Close"].values.astype(float).tolist()
-                    except: pass
-                with st.spinner("🏭 Sektor..."):
-                    try: sector_momentum=get_sector_momentum()
-                    except: pass
-            if cfg.get("enable_foreign",False):
-                with st.spinner("🌏 Foreign..."):
-                    try: rti_data=fetch_foreign_flow_rti()
-                    except: pass
-            results=run_scan(tickers,progress_bar=prog,ihsg_closes=ihsg_closes,
-                             sector_momentum=sector_momentum,rti_data=rti_data)
-            st.session_state.update({"stocks":results,"ihsg_closes":ihsg_closes,
-                "sector_momentum":sector_momentum,"rti_data":rti_data,
-                "last_scan_time":datetime.now().strftime("%H:%M:%S"),
-                "scan_count":st.session_state.get("scan_count",0)+1})
-            prog.empty(); st.success(f"✅ {len(results)} saham."); st.rerun()
-
-        stocks=st.session_state.get("stocks",[])
-        (tab_scanner,tab_rs,tab_sector,tab_foreign,tab_bandar,
-         tab_patterns_t,tab_ai_conf_t,tab_news_t,tab_backtest,
-         tab_leaderboard_t,tab_watchlist,tab_portfolio,tab_ai_analyst)=st.tabs([
-            "📊 Scanner","📈 RS vs IHSG","🏭 Sektor","🌏 Foreign Flow",
-            "🐋 Bandarmologi","📊 Chart Pattern","🤖 AI Confidence",
-            "📰 Sentimen","🔬 Backtest","🏆 Leaderboard",
-            "👀 Watchlist","💼 Portfolio","🤖 AI Analyst",
-        ])
-        with tab_scanner:
-
-            # ──────────────────────────────────────────────────────────
-            with tab_scanner:
-                stocks = st.session_state.get('stocks', [])
-                if not stocks:
-                    st.markdown("""
-                    <div class='empty-state'>
-                        <div class='icon'>⚡</div>
-                        <div class='title'>AKSARA IDX v2.0</div>
-                        <div class='sub'>
-                            RSI WILDER · MACD FULL SERIES · RS vs IHSG<br>
-                            SECTOR MOMENTUM · FOREIGN FLOW REAL · BACKTEST REALISTIS<br>
-                            BANDARMOLOGI · CHART PATTERN · WYCKOFF · RISK MANAGER
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    return
-
-                strong = sum(1 for s in stocks if s.get("score", 0) >= 72)
-                buy    = sum(1 for s in stocks if 58 <= s.get("score", 0) < 72)
-                watch  = sum(1 for s in stocks if 45 <= s.get("score", 0) < 58)
-                rs_out = sum(1 for s in stocks if s.get("rs_outperform", False))
-
-                col1, col2, col3, col4, col5, col6 = st.columns(6)
-                metric_card(col1, "📋 TOTAL",        len(stocks))
-                metric_card(col2, "🔥 STRONG+",      strong, "#00ff88")
-                metric_card(col3, "🟢 BUY",          buy,    "#7dff6b")
-                metric_card(col4, "🟡 WATCH",        watch,  "#ffd700")
-                metric_card(col5, "📈 RS Outperform",rs_out, "#00c8ff")
-                metric_card(col6, "🕐 SCAN",         st.session_state.get('scan_time', '-'), "#8b949e")
-
-                st.markdown("<br>", unsafe_allow_html=True)
-                search = st.text_input("🔍 Cari ticker:", "", placeholder="Contoh: BBCA")
-                display_stocks = ([s for s in stocks if search.upper() in s.get("ticker", "")]
-                                  if search else stocks)
-
-                st.subheader("📋 HASIL SCAN")
-                table_data = []
-                for s in display_stocks[:100]:
-                    b = s.get("bandar", {}); f = s.get("foreign", {})
-                    _rs_v = s.get("rs_score", 50)
-                    rs_icon = "⭐" if _rs_v > 55 else ("➡️" if _rs_v >= 45 else "⬇️")
-                    table_data.append({
-                        "Ticker":  s.get("ticker", ""),
-                        "Harga":   fmt_price(s.get("price", 0)),
-                        "Change%": f"{s.get('change', 0):+.1f}%",
-                        "Score":   s.get("score", 0),
-                        "Rating":  f"{rating_icon(s.get('rating',''))} {s.get('rating','')}",
-                        "Konf":    s.get("confirmations", 0),
-                        "RSI":     s.get("rsi", 0),
-                        "Vol":     f"{s.get('vol_ratio', 0):.1f}x",
-                        "ADX":     s.get("adx", 0),
-                        "RS":      f"{rs_icon}{s.get('rs_score',50):.0f}",
-                        "Sektor#": f"#{s.get('sec_rank',7)}",
-                        "Bandar":  (b.get("fase","").split(" ")[1] if len(b.get("fase","").split(" ")) > 1 else ""),
-                        "Foreign": f.get("flow_status", ""),
-                        "Wyckoff": s.get("wyckoff", ""),
-                        "Sektor":  s.get("sector", ""),
-                    })
-
-                st.dataframe(
-                    pd.DataFrame(table_data), use_container_width=True, hide_index=True,
-                    column_config={"Score": st.column_config.ProgressColumn(
-                        "Score", min_value=0, max_value=100, format="%d")}
-                )
-
-                csv_data = export_to_csv(display_stocks[:300])
-                st.download_button("📥 Export CSV", csv_data,
-                                   file_name=f"scan_v2_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                                   mime="text/csv")
-
-                st.divider()
-                st.subheader("📈 DETAIL PER SAHAM")
-                ticker_options = [s.get("ticker", "") for s in stocks[:50]]
-                selected_ticker = st.selectbox("Pilih saham untuk detail:", ticker_options)
-
-                if selected_ticker:
-                    stock_data = next((s for s in stocks if s.get("ticker") == selected_ticker), None)
-                    if stock_data:
-                        b  = stock_data.get("bandar", {})
-                        f  = stock_data.get("foreign", {})
-                        tp = stock_data.get("trade_plan", {})
-                        rs = stock_data.get("rs_data", {})
-
-                        col_d1, col_d2, col_d3, col_d4 = st.columns(4)
-                        with col_d1: st.metric("Harga",      fmt_price(stock_data.get("price", 0)),
-                                               f"{stock_data.get('change', 0):+.1f}%")
-                        with col_d2: st.metric("Score",      f"{stock_data.get('score', 0)}/100")
-                        with col_d3: st.metric("Rating",     stock_data.get("rating", ""))
-                        with col_d4:
-                            _rs_val = stock_data.get('rs_score', 50)
-                            _rs_label = ("⭐ Outperform" if _rs_val > 55
-                                         else ("➡️ Netral" if _rs_val >= 45
-                                               else "⬇️ Underperform"))
-                            st.metric("RS vs IHSG", f"{_rs_val:.0f}/100", _rs_label)
-
-                        det_tab1, det_tab2, det_tab3, det_tab4, det_tab5, det_tab6 = st.tabs([
-                            "📊 Teknikal", "📈 RS & Sektor", "🐋 Bandar", "🌏 Foreign", "💰 Trading Plan", "🤖 AI"
-                        ])
-
-                        with det_tab1:
-                            col_tek1, col_tek2 = st.columns(2)
-                            with col_tek1:
-                                st.markdown("**📈 Indikator (v2.0 — Fixed)**")
-                                st.markdown(f"""
-                                - **RSI (Wilder):** {stock_data.get('rsi', 0)} ← *akurat seperti TradingView*
-                                - **MACD:** {stock_data.get('macd', 0):.4f} (hist: {stock_data.get('macd_hist', 0):.4f}) ← *full series*
-                                - **MACD Signal:** {stock_data.get('macd_signal', 0):.4f}
-                                - **Stochastic:** %K {stock_data.get('stoch_k', 0)} / %D {stock_data.get('stoch_d', 0)}
-                                - **ADX:** {stock_data.get('adx', 0)}
-                                - **BB Position:** {stock_data.get('bb_pos', 0)}%
-                                - **Support:** {fmt_price(stock_data.get('support', 0)) if stock_data.get('support') else 'N/A'}
-                                - **Resistance:** {fmt_price(stock_data.get('resistance', 0)) if stock_data.get('resistance') else 'N/A'}
-                                """)
-                            with col_tek2:
-                                st.markdown("**📊 Moving Averages & Position**")
-                                st.markdown(f"""
-                                - **MA50:** {'✅ Di atas' if stock_data.get('above_ma50') else '❌ Di bawah'}
-                                - **MA200:** {'✅ Di atas' if stock_data.get('above_ma200') else '❌ Di bawah'}
-                                - **Golden Cross:** {'✅ Ya' if stock_data.get('golden_cross') else '❌ Tidak'}
-                                - **52W Position:** {stock_data.get('pos52w', 0)}%
-                                - **Wyckoff Phase:** {stock_data.get('wyckoff', '')}
-                                - **Volume Ratio:** {stock_data.get('vol_ratio', 0):.2f}x
-                                - **ATR:** {fmt_price(stock_data.get('atr', 0))}
-                                """)
-                            st.markdown("**🕯️ Chart Pattern**")
-                            patterns = stock_data.get('patterns', [])
-                            if patterns:
-                                for p in patterns:
-                                    color = ("#00ff88" if p["signal"] == "BULLISH" else
-                                             "#ff4444" if p["signal"] == "BEARISH" else "#ffd700")
-                                    st.markdown(
-                                        f"<span style='background:{color}22;border:1px solid {color}44;"
-                                        f"color:{color};border-radius:4px;padding:3px 8px;font-size:0.75rem;"
-                                        f"margin:2px;display:inline-block'>{p['name']} {p['confidence']}% · {p['description']}</span>",
+                    col_ban1, col_ban2 = st.columns(2)
+                    with col_ban1:
+                        st.markdown("**📊 Indikator Bandar**")
+                        cmf_val   = b.get('cmf', 0)
+                        cmf_color = "#00ff88" if cmf_val > 0.05 else "#ff4444" if cmf_val < -0.05 else "#ffd700"
+                        st.markdown(f"""
+                        - **CMF:** <span style='color:{cmf_color}'>{cmf_val:+.4f}</span>
+                        - **VWAP:** {'✅ Di atas' if b.get('above_vwap') else '❌ Di bawah'}
+                        - **A/D Line:** {b.get('ad_trend', 'N/A')}
+                        - **OBV Trend:** {b.get('obv_trend', 'N/A')}
+                        - **Volume Ratio:** {b.get('vol_ratio', 1)}x
+                        - **Bandar Strength:** {b.get('bandar_strength', 50)}/100
+                        """, unsafe_allow_html=True)
+                    with col_ban2:
+                        st.markdown("**🔍 Sinyal Bandar**")
+                        for sig in b.get('signals', []):
+                            clr = "#00ff88" if "✅" in sig else "#ff4444" if "🔴" in sig else "#ffd700"
+                            st.markdown(f"<span style='color:{clr}; font-size:0.85rem'>• {sig}</span>",
                                         unsafe_allow_html=True)
-                            else:
-                                st.info("Tidak ada pattern terdeteksi")
-                            st.markdown("**⚡ Sinyal**")
-                            for sig in stock_data.get('signals', []):
-                                st.markdown(f"<span class='signal-tag'>{sig}</span>", unsafe_allow_html=True)
 
-                        with det_tab2:
-                            st.markdown("### 📈 RELATIVE STRENGTH vs IHSG")
-                            rs_score = stock_data.get("rs_score", 50)
-                            rs_ratio = stock_data.get("rs_ratio", 1.0)
-                            rs_trend = stock_data.get("rs_trend", "STABLE")
-                            rs_1m    = stock_data.get("rs_1m", 0)
-                            rs_3m    = stock_data.get("rs_3m", 0)
-                            outperform = stock_data.get("rs_outperform", False)
+                with det_tab4:
+                    data_src  = stock_data.get("foreign_data_source", "estimated")
+                    src_badge = ("📡 REAL DATA" if data_src != "estimated" else "📊 ESTIMATED")
+                    src_color = "#00ff88" if data_src != "estimated" else "#ffd700"
+                    st.markdown(f"""
+                    <div class='fase-card' style='background:{f.get("flow_color","#8b949e")}0d;
+                    border-left-color:{f.get("flow_color","#8b949e")}'>
+                        <span class='fase-icon'>{f.get("flow_emoji","")}</span>
+                        <div>
+                            <span class='fase-text' style='color:{f.get("flow_color","#8b949e")}'>{f.get("flow_status","N/A")}</span>
+                            <span style='font-family:"JetBrains Mono",monospace;font-size:0.65rem;
+                            color:{src_color};margin-left:10px;vertical-align:middle'>{src_badge}</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    col_for1, col_for2 = st.columns(2)
+                    with col_for1:
+                        st.markdown("**📊 Indikator Foreign**")
+                        ff_color = f.get("flow_color", "#8b949e")
+                        st.markdown(f"""
+                        - **Net Flow:** <span style='color:{ff_color}'>Rp {stock_data.get('net_foreign_flow', 0):,.0f}</span>
+                        - **Flow Strength:** {f.get('flow_strength', 50):.1f}/100
+                        - **Foreign Ratio:** {f.get('foreign_ratio', 0):.1f}%
+                        - **Est. Ownership:** {f.get('est_foreign_ownership', 0):.1f}%
+                        - **Data Source:** {data_src}
+                        """, unsafe_allow_html=True)
+                    with col_for2:
+                        st.markdown("**🔍 Sinyal Foreign**")
+                        for sig in f.get('signals', []):
+                            clr = ("#00ff88" if any(x in sig for x in ["✅","⚡","📡"]) else
+                                   "#ff4444" if any(x in sig for x in ["🔴","⚠️"]) else "#ffd700")
+                            st.markdown(f"<span style='color:{clr}; font-size:0.85rem'>• {sig}</span>",
+                                        unsafe_allow_html=True)
 
-                            rs_color = "#00ff88" if outperform else "#ff4444"
-                            rs_text  = "⭐ OUTPERFORM IHSG" if outperform else "⬇️ UNDERPERFORM IHSG"
-
-                            st.markdown(f"""
-                            <div class='fase-card' style='background:{rs_color}0d;border-left-color:{rs_color}'>
-                                <span class='fase-icon'>{'⭐' if outperform else '📉'}</span>
-                                <div>
-                                    <div class='fase-text' style='color:{rs_color}'>{rs_text}</div>
-                                    <div style='font-family:"JetBrains Mono",monospace;font-size:0.72rem;color:var(--text-muted);margin-top:4px'>
-                                        RS Ratio: {rs_ratio:.3f} · Trend: {rs_trend}
-                                    </div>
+                with det_tab5:
+                    if tp:
+                        sl_d  = tp.get('sl', {})
+                        tp_d  = tp.get('tp', {})
+                        pos_d = tp.get('position', {})
+                        st.markdown(f"""
+                        <div class='section-card' style='border-color:rgba(0,232,122,0.15)'>
+                            <div class='section-title'>📌 Rencana Trading</div>
+                            <div class='trade-grid'>
+                                <div class='trade-cell'>
+                                    <div class='trade-cell-label'>Entry</div>
+                                    <div class='trade-cell-val' style='color:var(--accent-gold)'>{fmt_price(stock_data.get('price', 0))}</div>
+                                </div>
+                                <div class='trade-cell' style='border-color:rgba(255,61,90,0.2)'>
+                                    <div class='trade-cell-label'>Stop Loss</div>
+                                    <div class='trade-cell-val' style='color:var(--accent-red)'>{fmt_price(sl_d.get('recommended', 0))}</div>
+                                    <div class='trade-cell-sub' style='color:var(--accent-red)'>-{sl_d.get('risk_pct', 0)}%</div>
+                                </div>
+                                <div class='trade-cell' style='border-color:rgba(0,232,122,0.15)'>
+                                    <div class='trade-cell-label'>TP1</div>
+                                    <div class='trade-cell-val' style='color:#7dff9a'>{fmt_price(tp_d.get('tp1', 0))}</div>
+                                    <div class='trade-cell-sub' style='color:#7dff9a'>+{tp_d.get('tp1_pct', 0)}%</div>
+                                </div>
+                                <div class='trade-cell' style='border-color:rgba(0,232,122,0.25)'>
+                                    <div class='trade-cell-label'>TP2 ⭐</div>
+                                    <div class='trade-cell-val' style='color:var(--accent-green)'>{fmt_price(tp_d.get('tp2', 0))}</div>
+                                    <div class='trade-cell-sub' style='color:var(--accent-green)'>+{tp_d.get('tp2_pct', 0)}%</div>
                                 </div>
                             </div>
-                            """, unsafe_allow_html=True)
-
-                            col_rs1, col_rs2, col_rs3, col_rs4 = st.columns(4)
-                            metric_card(col_rs1, "RS Score",  f"{rs_score:.0f}/100", rs_color)
-                            metric_card(col_rs2, "RS Ratio",  f"{rs_ratio:.3f}",
-                                        "#00ff88" if rs_ratio > 1 else "#ff4444")
-                            metric_card(col_rs3, "RS 1 Bulan",f"{rs_1m:+.2f}%",
-                                        "#00ff88" if rs_1m > 0 else "#ff4444")
-                            metric_card(col_rs4, "RS 3 Bulan",f"{rs_3m:+.2f}%",
-                                        "#00ff88" if rs_3m > 0 else "#ff4444")
-
-                            st.markdown("---")
-                            st.markdown("### 🏭 SECTOR MOMENTUM")
-                            sec_score = stock_data.get("sec_score", 50)
-                            sec_rank  = stock_data.get("sec_rank", 7)
-                            sec_change= stock_data.get("sec_change", 0)
-                            sec_name  = stock_data.get("sector", "")
-
-                            sm = st.session_state.get("sector_momentum", {})
-                            if sm and sec_name in sm:
-                                sec_info = sm[sec_name]
-                                sec_color = ("#00ff88" if sec_change > 1 else
-                                             "#ffd700" if sec_change > 0 else "#ff4444")
-                                st.markdown(f"""
-                                <div style='background:var(--bg-elevated);border:1px solid var(--border);
-                                border-radius:var(--radius-md);padding:16px;margin-bottom:12px'>
-                                    <div style='font-family:"Syne",sans-serif;font-size:1rem;font-weight:800;
-                                    color:{sec_color};margin-bottom:8px'>
-                                        Sektor {sec_name} — Rank #{sec_rank}/13
-                                    </div>
-                                    <div style='font-family:"JetBrains Mono",monospace;font-size:0.75rem;color:var(--text-secondary)'>
-                                        Trend: {sec_info.get('trend','N/A')} · 1W: {sec_change:+.2f}% · 1M: {sec_info.get('change_1m',0):+.2f}%
-                                    </div>
+                            <div style='background:var(--bg-elevated);border:1px solid var(--border);
+                            border-radius:var(--radius-sm);padding:12px;font-family:"JetBrains Mono",monospace;font-size:0.72rem'>
+                                <div style='display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)'>
+                                    <span style='color:var(--text-muted)'>Risk / Reward</span>
+                                    <span style='color:var(--accent-gold);font-weight:700'>1 : {tp_d.get('rr', 0)}</span>
                                 </div>
-                                """, unsafe_allow_html=True)
-
-                                # Show all sectors ranked
-                                st.markdown("**Ranking Semua Sektor:**")
-                                sorted_sectors = sorted(sm.items(), key=lambda x: x[1]["score"], reverse=True)
-                                for rank, (sn, sd) in enumerate(sorted_sectors, 1):
-                                    bar_w = int(sd["score"])
-                                    clr   = "#00ff88" if sd["change_1w"] > 1 else "#ffd700" if sd["change_1w"] > 0 else "#ff4444"
-                                    highlight = " style='background:rgba(0,200,255,0.05);border-radius:4px'" if sn == sec_name else ""
-                                    st.markdown(f"""
-                                    <div class='info-row'{highlight}>
-                                        <span>#{rank} <b style='color:{"#00c8ff" if sn==sec_name else "var(--text-primary)"}'>{sn}</b></span>
-                                        <span style='color:{clr}'>{sd["change_1w"]:+.2f}% (1W)</span>
-                                    </div>
-                                    """, unsafe_allow_html=True)
-                            else:
-                                st.info("Data sektor belum dimuat. Jalankan scan untuk memuat.")
-
-                        with det_tab3:
-                            st.markdown(f"""
-                            <div class='fase-card' style='background:{b.get("fase_color","#8b949e")}0d;
-                            border-left-color:{b.get("fase_color","#8b949e")}'>
-                                <span class='fase-icon'>{b.get('fase_emoji','')}</span>
-                                <span class='fase-text' style='color:{b.get("fase_color","#8b949e")}'>{b.get('fase','N/A')}</span>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            col_ban1, col_ban2 = st.columns(2)
-                            with col_ban1:
-                                st.markdown("**📊 Indikator Bandar**")
-                                cmf_val   = b.get('cmf', 0)
-                                cmf_color = "#00ff88" if cmf_val > 0.05 else "#ff4444" if cmf_val < -0.05 else "#ffd700"
-                                st.markdown(f"""
-                                - **CMF:** <span style='color:{cmf_color}'>{cmf_val:+.4f}</span>
-                                - **VWAP:** {'✅ Di atas' if b.get('above_vwap') else '❌ Di bawah'}
-                                - **A/D Line:** {b.get('ad_trend', 'N/A')}
-                                - **OBV Trend:** {b.get('obv_trend', 'N/A')}
-                                - **Volume Ratio:** {b.get('vol_ratio', 1)}x
-                                - **Bandar Strength:** {b.get('bandar_strength', 50)}/100
-                                """, unsafe_allow_html=True)
-                            with col_ban2:
-                                st.markdown("**🔍 Sinyal Bandar**")
-                                for sig in b.get('signals', []):
-                                    clr = "#00ff88" if "✅" in sig else "#ff4444" if "🔴" in sig else "#ffd700"
-                                    st.markdown(f"<span style='color:{clr}; font-size:0.85rem'>• {sig}</span>",
-                                                unsafe_allow_html=True)
-
-                        with det_tab4:
-                            data_src  = stock_data.get("foreign_data_source", "estimated")
-                            src_badge = ("📡 REAL DATA" if data_src != "estimated" else "📊 ESTIMATED")
-                            src_color = "#00ff88" if data_src != "estimated" else "#ffd700"
-                            st.markdown(f"""
-                            <div class='fase-card' style='background:{f.get("flow_color","#8b949e")}0d;
-                            border-left-color:{f.get("flow_color","#8b949e")}'>
-                                <span class='fase-icon'>{f.get("flow_emoji","")}</span>
-                                <div>
-                                    <span class='fase-text' style='color:{f.get("flow_color","#8b949e")}'>{f.get("flow_status","N/A")}</span>
-                                    <span style='font-family:"JetBrains Mono",monospace;font-size:0.65rem;
-                                    color:{src_color};margin-left:10px;vertical-align:middle'>{src_badge}</span>
+                                <div style='display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)'>
+                                    <span style='color:var(--text-muted)'>Max Lot (risk 2%)</span>
+                                    <span style='color:var(--text-primary)'>{pos_d.get('lot', 1)} lot · {pos_d.get('lembar', 100):,} lembar</span>
+                                </div>
+                                <div style='display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)'>
+                                    <span style='color:var(--text-muted)'>Modal Dibutuhkan</span>
+                                    <span style='color:var(--text-primary)'>{fmt_price(pos_d.get('required_modal', 0))}</span>
+                                </div>
+                                <div style='display:flex;justify-content:space-between;padding:4px 0'>
+                                    <span style='color:var(--text-muted)'>Max Loss</span>
+                                    <span style='color:var(--accent-red)'>{fmt_price(pos_d.get('max_loss', 0))}</span>
                                 </div>
                             </div>
-                            """, unsafe_allow_html=True)
-                            col_for1, col_for2 = st.columns(2)
-                            with col_for1:
-                                st.markdown("**📊 Indikator Foreign**")
-                                ff_color = f.get("flow_color", "#8b949e")
-                                st.markdown(f"""
-                                - **Net Flow:** <span style='color:{ff_color}'>Rp {stock_data.get('net_foreign_flow', 0):,.0f}</span>
-                                - **Flow Strength:** {f.get('flow_strength', 50):.1f}/100
-                                - **Foreign Ratio:** {f.get('foreign_ratio', 0):.1f}%
-                                - **Est. Ownership:** {f.get('est_foreign_ownership', 0):.1f}%
-                                - **Data Source:** {data_src}
-                                """, unsafe_allow_html=True)
-                            with col_for2:
-                                st.markdown("**🔍 Sinyal Foreign**")
-                                for sig in f.get('signals', []):
-                                    clr = ("#00ff88" if any(x in sig for x in ["✅","⚡","📡"]) else
-                                           "#ff4444" if any(x in sig for x in ["🔴","⚠️"]) else "#ffd700")
-                                    st.markdown(f"<span style='color:{clr}; font-size:0.85rem'>• {sig}</span>",
-                                                unsafe_allow_html=True)
+                            <div style='margin-top:10px;font-family:"JetBrains Mono",monospace;font-size:0.68rem;
+                            color:var(--text-muted);padding:8px;background:var(--bg-elevated);border-radius:var(--radius-sm)'>
+                                ⚙ {tp.get('adjustment_note', '')}
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
 
-                        with det_tab5:
-                            if tp:
-                                sl_d  = tp.get('sl', {})
-                                tp_d  = tp.get('tp', {})
-                                pos_d = tp.get('position', {})
-                                st.markdown(f"""
-                                <div class='section-card' style='border-color:rgba(0,232,122,0.15)'>
-                                    <div class='section-title'>📌 Rencana Trading</div>
-                                    <div class='trade-grid'>
-                                        <div class='trade-cell'>
-                                            <div class='trade-cell-label'>Entry</div>
-                                            <div class='trade-cell-val' style='color:var(--accent-gold)'>{fmt_price(stock_data.get('price', 0))}</div>
-                                        </div>
-                                        <div class='trade-cell' style='border-color:rgba(255,61,90,0.2)'>
-                                            <div class='trade-cell-label'>Stop Loss</div>
-                                            <div class='trade-cell-val' style='color:var(--accent-red)'>{fmt_price(sl_d.get('recommended', 0))}</div>
-                                            <div class='trade-cell-sub' style='color:var(--accent-red)'>-{sl_d.get('risk_pct', 0)}%</div>
-                                        </div>
-                                        <div class='trade-cell' style='border-color:rgba(0,232,122,0.15)'>
-                                            <div class='trade-cell-label'>TP1</div>
-                                            <div class='trade-cell-val' style='color:#7dff9a'>{fmt_price(tp_d.get('tp1', 0))}</div>
-                                            <div class='trade-cell-sub' style='color:#7dff9a'>+{tp_d.get('tp1_pct', 0)}%</div>
-                                        </div>
-                                        <div class='trade-cell' style='border-color:rgba(0,232,122,0.25)'>
-                                            <div class='trade-cell-label'>TP2 ⭐</div>
-                                            <div class='trade-cell-val' style='color:var(--accent-green)'>{fmt_price(tp_d.get('tp2', 0))}</div>
-                                            <div class='trade-cell-sub' style='color:var(--accent-green)'>+{tp_d.get('tp2_pct', 0)}%</div>
-                                        </div>
-                                    </div>
-                                    <div style='background:var(--bg-elevated);border:1px solid var(--border);
-                                    border-radius:var(--radius-sm);padding:12px;font-family:"JetBrains Mono",monospace;font-size:0.72rem'>
-                                        <div style='display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)'>
-                                            <span style='color:var(--text-muted)'>Risk / Reward</span>
-                                            <span style='color:var(--accent-gold);font-weight:700'>1 : {tp_d.get('rr', 0)}</span>
-                                        </div>
-                                        <div style='display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)'>
-                                            <span style='color:var(--text-muted)'>Max Lot (risk 2%)</span>
-                                            <span style='color:var(--text-primary)'>{pos_d.get('lot', 1)} lot · {pos_d.get('lembar', 100):,} lembar</span>
-                                        </div>
-                                        <div style='display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)'>
-                                            <span style='color:var(--text-muted)'>Modal Dibutuhkan</span>
-                                            <span style='color:var(--text-primary)'>{fmt_price(pos_d.get('required_modal', 0))}</span>
-                                        </div>
-                                        <div style='display:flex;justify-content:space-between;padding:4px 0'>
-                                            <span style='color:var(--text-muted)'>Max Loss</span>
-                                            <span style='color:var(--accent-red)'>{fmt_price(pos_d.get('max_loss', 0))}</span>
-                                        </div>
-                                    </div>
-                                    <div style='margin-top:10px;font-family:"JetBrains Mono",monospace;font-size:0.68rem;
-                                    color:var(--text-muted);padding:8px;background:var(--bg-elevated);border-radius:var(--radius-sm)'>
-                                        ⚙ {tp.get('adjustment_note', '')}
-                                    </div>
-                                </div>
-                                """, unsafe_allow_html=True)
+                with det_tab6:
+                    if st.session_state.get('groq_api_key'):
+                        if st.button(f"🤖 Generate AI Analysis untuk {selected_ticker}", use_container_width=True):
+                            with st.spinner("AI sedang menganalisa..."):
+                                analysis = get_ai_analysis(stock_data, st.session_state['groq_api_key'])
+                                st.markdown(f"<div class='ai-output'>{analysis}</div>", unsafe_allow_html=True)
+                    else:
+                        st.info("💡 Set GROQ_API_KEY di environment untuk AI Analyst (GRATIS di console.groq.com)")
 
-                        with det_tab6:
-                            if st.session_state.get('groq_api_key'):
-                                if st.button(f"🤖 Generate AI Analysis untuk {selected_ticker}", use_container_width=True):
-                                    with st.spinner("AI sedang menganalisa..."):
-                                        analysis = get_ai_analysis(stock_data, st.session_state['groq_api_key'])
-                                        st.markdown(f"<div class='ai-output'>{analysis}</div>", unsafe_allow_html=True)
-                            else:
-                                st.info("💡 Set GROQ_API_KEY di environment untuk AI Analyst (GRATIS di console.groq.com)")
-
-                        st.markdown("---")
-                        st.subheader("📈 CHART")
-                        if st.button("📊 Load Chart", key=f"chart_{selected_ticker}"):
-                            with st.spinner("Memuat chart..."):
-                                df_chart = st.session_state.get('chart_data', {}).get(selected_ticker)
-                                if df_chart is not None:
-                                    fig = create_chart(df_chart, selected_ticker, tp)
-                                    if fig: st.plotly_chart(fig, use_container_width=True,
-                                                            config={"displayModeBar": False})
-                                else:
-                                    st.warning("Data chart tidak tersedia (perlu scan ulang dengan data live)")
-
-                        wl = get_watchlist()
-                        if selected_ticker in wl:
-                            if st.button("❌ Hapus dari Watchlist", use_container_width=True):
-                                remove_from_watchlist(selected_ticker); st.rerun()
+                st.markdown("---")
+                st.subheader("📈 CHART")
+                if st.button("📊 Load Chart", key=f"chart_{selected_ticker}"):
+                    with st.spinner("Memuat chart..."):
+                        df_chart = st.session_state.get('chart_data', {}).get(selected_ticker)
+                        if df_chart is not None:
+                            fig = create_chart(df_chart, selected_ticker, tp)
+                            if fig: st.plotly_chart(fig, use_container_width=True,
+                                                    config={"displayModeBar": False})
                         else:
-                            if st.button("👀 Tambah ke Watchlist", use_container_width=True):
-                                add_to_watchlist(selected_ticker, scan_result=stock_data); st.rerun()
+                            st.warning("Data chart tidak tersedia (perlu scan ulang dengan data live)")
 
-            # ──────────────────────────────────────────────────────────
-        with tab_rs:
-
-            # ✅ NEW TAB: RELATIVE STRENGTH vs IHSG
-            # ──────────────────────────────────────────────────────────
-            with tab_rs:
-                st.markdown("### 📈 RELATIVE STRENGTH vs IHSG")
-                st.caption("Saham yang outperform IHSG = lebih kuat dari market = kandidat terbaik untuk trading")
-                st.divider()
-
-                stocks = st.session_state.get('stocks', [])
-                if not stocks:
-                    st.info("Jalankan scan terlebih dahulu")
-                else:
-                    outperformers  = sorted([s for s in stocks if s.get("rs_score", 50) > 55],
-                                           key=lambda x: x.get("rs_score", 50), reverse=True)
-                    neutrals       = [s for s in stocks if 45 <= s.get("rs_score", 50) <= 55]
-                    underperformers = sorted([s for s in stocks if s.get("rs_score", 50) < 45],
-                                             key=lambda x: x.get("rs_score", 50))
-
-                    col_rs1, col_rs2, col_rs3, col_rs4 = st.columns(4)
-                    metric_card(col_rs1, "⭐ Outperform (>55)", len(outperformers), "#00ff88")
-                    metric_card(col_rs2, "➡️ Netral (45–55)",   len(neutrals),       "#ffd700")
-                    metric_card(col_rs3, "⬇️ Underperform (<45)", len(underperformers), "#ff4444")
-                    avg_rs = np.mean([s.get("rs_score",50) for s in stocks]) if stocks else 50
-                    metric_card(col_rs4, "Avg RS Score", f"{avg_rs:.1f}", "#00c8ff")
-
-                    st.divider()
-                    col_left, col_right = st.columns(2)
-
-                    with col_left:
-                        st.markdown("**⭐ TOP 15 OUTPERFORM IHSG**")
-                        for s in outperformers[:15]:
-                            rs_score = s.get("rs_score", 50)
-                            rs_1m    = s.get("rs_1m", 0)
-                            rs_3m    = s.get("rs_3m", 0)
-                            rt       = s.get("rs_trend","")
-                            trend_icon = "📈" if rt == "IMPROVING" else "📉" if rt == "WEAKENING" else "➡️"
-                            st.markdown(f"""
-                            <div class='info-row'>
-                                <span style='color:#e0e8ff;font-weight:bold'>{s['ticker']}</span>
-                                <span>
-                                    <span style='color:#00ff88'>RS:{rs_score:.0f}</span>
-                                    <span style='color:#ffd700;font-size:0.8rem'> 1M:{rs_1m:+.1f}%</span>
-                                    <span style='color:#7a84a8;font-size:0.8rem'> 3M:{rs_3m:+.1f}%</span>
-                                    <span style='font-size:0.8rem'> {trend_icon}</span>
-                                </span>
-                            </div>
-                            """, unsafe_allow_html=True)
-
-                    with col_right:
-                        st.markdown("**⬇️ TOP 15 UNDERPERFORM (HINDARI)**")
-                        for s in underperformers[:15]:
-                            rs_score = s.get("rs_score", 50)
-                            rs_1m    = s.get("rs_1m", 0)
-                            rt       = s.get("rs_trend","")
-                            trend_icon = "📈" if rt == "IMPROVING" else "📉" if rt == "WEAKENING" else "➡️"
-                            st.markdown(f"""
-                            <div class='info-row'>
-                                <span style='color:#e0e8ff;font-weight:bold'>{s['ticker']}</span>
-                                <span>
-                                    <span style='color:#ff4444'>RS:{rs_score:.0f}</span>
-                                    <span style='color:#ffd700;font-size:0.8rem'> 1M:{rs_1m:+.1f}%</span>
-                                    <span style='font-size:0.8rem'> {trend_icon}</span>
-                                </span>
-                            </div>
-                            """, unsafe_allow_html=True)
-
-                    st.divider()
-                    st.markdown("**🚀 RS IMPROVING — Momentum Meningkat vs IHSG**")
-                    improving = sorted([s for s in stocks if s.get("rs_trend") == "IMPROVING"],
-                                       key=lambda x: x.get("rs_score",0), reverse=True)
-                    if improving:
-                        for s in improving[:10]:
-                            st.markdown(
-                                f"<span style='background:#00ff8811;border:1px solid #00ff8833;color:#00ff88;"
-                                f"border-radius:4px;padding:3px 10px;font-size:0.8rem;margin:3px;display:inline-block'>"
-                                f"📈 {s['ticker']} (RS:{s.get('rs_score',50):.0f} · 1M:{s.get('rs_1m',0):+.1f}%)</span>",
-                                unsafe_allow_html=True)
-                    else:
-                        st.info("Tidak ada saham dengan RS improving signifikan")
-
-                    st.divider()
-                    # RS Score distribution chart
-                    st.markdown("**📊 Distribusi RS Score**")
-                    rs_scores = [s.get("rs_score", 50) for s in stocks]
-                    fig_rs = go.Figure()
-                    fig_rs.add_trace(go.Histogram(
-                        x=rs_scores, nbinsx=20,
-                        marker_color=[("#00ff88" if x > 50 else "#ff4444") for x in rs_scores],
-                        opacity=0.8
-                    ))
-                    fig_rs.add_vline(x=50, line_dash="dash", line_color="#ffd700",
-                                     annotation_text="IHSG Benchmark (50)")
-                    fig_rs.update_layout(
-                        height=280, paper_bgcolor="#070711", plot_bgcolor="#0d0d1a",
-                        font=dict(color="#7a84a8", family="JetBrains Mono", size=10),
-                        margin=dict(l=20, r=20, t=20, b=20),
-                        xaxis_title="RS Score", yaxis_title="Jumlah Saham"
-                    )
-                    fig_rs.update_xaxes(gridcolor="#1e1e36")
-                    fig_rs.update_yaxes(gridcolor="#1e1e36")
-                    st.plotly_chart(fig_rs, use_container_width=True)
-
-                    with st.expander("📖 Cara Membaca RS vs IHSG"):
-                        st.markdown("""
-                        **Relative Strength (RS) vs IHSG** mengukur seberapa kuat pergerakan saham dibandingkan benchmark (IHSG).
-
-                        **RS Score > 50** → Saham lebih kuat dari IHSG (outperform) — *kandidat utama untuk trading*
-                        **RS Score < 50** → Saham lebih lemah dari IHSG (underperform) — *hindari atau kurangi exposure*
-
-                        **RS Trend:**
-                        - **IMPROVING** → RS sedang naik = momentum membaik = sinyal positif kuat
-                        - **WEAKENING** → RS sedang turun = momentum melemah = waspada
-                        - **STABLE** → RS stabil
-
-                        **Kenapa RS Penting?**
-                        Saham yang outperform IHSG saat market naik, dan outperform saat market turun (turun lebih sedikit),
-                        adalah saham paling sehat untuk di-trading. Institutional investor selalu prefer saham-saham ini.
-                        """)
-
-            # ──────────────────────────────────────────────────────────
-        with tab_sector:
-
-            # ✅ NEW TAB: SECTOR MOMENTUM
-            # ──────────────────────────────────────────────────────────
-            with tab_sector:
-                st.markdown("### 🏭 SECTOR MOMENTUM ANALYSIS")
-                st.caption("Rotasi sektor real-time — ikuti sektor yang sedang hot untuk maximise profit")
-                st.divider()
-
-                sm = st.session_state.get("sector_momentum", {})
-                if not sm:
-                    st.info("Klik **🚀 MULAI SCAN** untuk memuat data sector momentum")
-                    if st.button("🔄 Load Sector Momentum Saja", use_container_width=True):
-                        with st.spinner("Memuat sector momentum..."):
-                            sm = get_sector_momentum()
-                            st.session_state['sector_momentum'] = sm
-                            st.rerun()
-                else:
-                    sorted_sectors = sorted(sm.items(), key=lambda x: x[1]["score"], reverse=True)
-
-                    # Heatmap sektor
-                    st.markdown("**🌡️ SECTOR HEATMAP**")
-                    cols = st.columns(4)
-                    for i, (sec_name, sec_info) in enumerate(sorted_sectors):
-                        chg  = sec_info.get("change_1w", 0)
-                        sc   = sec_info.get("score", 50)
-                        rank = sec_info.get("rank", i + 1)
-                        bg   = f"rgba(0,232,122,{min(0.25, chg/10 + 0.05)})" if chg > 0 else \
-                               f"rgba(255,61,90,{min(0.25, abs(chg)/10 + 0.05)})"
-                        bc   = "#00ff88" if chg > 1 else "#7dff6b" if chg > 0 else \
-                               "#ff9944" if chg > -1 else "#ff4444"
-                        with cols[i % 4]:
-                            st.markdown(f"""
-                            <div style='background:{bg};border:1px solid {bc}44;border-radius:8px;
-                            padding:12px;text-align:center;margin:3px;'>
-                                <div style='font-family:"JetBrains Mono",monospace;font-size:0.55rem;
-                                color:var(--text-muted);letter-spacing:1px'>#{rank}</div>
-                                <div style='font-family:"Syne",sans-serif;font-size:0.85rem;
-                                font-weight:800;color:{bc}'>{sec_name}</div>
-                                <div style='font-family:"JetBrains Mono",monospace;font-size:0.8rem;
-                                color:{bc};font-weight:700;margin-top:2px'>{chg:+.2f}%</div>
-                                <div style='font-family:"JetBrains Mono",monospace;font-size:0.62rem;
-                                color:var(--text-muted)'>{sec_info.get("trend","")}</div>
-                            </div>
-                            """, unsafe_allow_html=True)
-
-                    st.divider()
-                    # Table detail
-                    st.markdown("**📊 DETAIL SECTOR PERFORMANCE**")
-                    sec_table = []
-                    for sec_name, sec_info in sorted_sectors:
-                        stocks_in_sec = [s for s in st.session_state.get('stocks', [])
-                                         if s.get("sector") == sec_name]
-                        avg_score = np.mean([s.get("score",0) for s in stocks_in_sec]) if stocks_in_sec else 0
-                        top_stock = max(stocks_in_sec, key=lambda x: x.get("score",0)).get("ticker","") if stocks_in_sec else "-"
-                        sec_table.append({
-                            "Rank":       sec_info.get("rank", "-"),
-                            "Sektor":     sec_name,
-                            "Trend":      sec_info.get("trend",""),
-                            "1W Change":  f"{sec_info.get('change_1w',0):+.2f}%",
-                            "1M Change":  f"{sec_info.get('change_1m',0):+.2f}%",
-                            "Score":      f"{sec_info.get('score',50):.1f}/100",
-                            "Avg Stock Score": f"{avg_score:.0f}" if avg_score else "-",
-                            "Top Stock":  top_stock,
-                        })
-                    st.dataframe(pd.DataFrame(sec_table), use_container_width=True, hide_index=True)
-
-                    st.divider()
-                    # Bar chart momentum
-                    st.markdown("**📊 Sector 1-Week Performance**")
-                    sec_names = [s[0] for s in sorted_sectors]
-                    sec_chgs  = [s[1].get("change_1w",0) for s in sorted_sectors]
-                    colors    = ["#00ff88" if c > 0 else "#ff4444" for c in sec_chgs]
-                    fig_sec = go.Figure(go.Bar(
-                        x=sec_names, y=sec_chgs, marker_color=colors,
-                        text=[f"{c:+.2f}%" for c in sec_chgs], textposition="outside",
-                        opacity=0.85
-                    ))
-                    fig_sec.add_hline(y=0, line_dash="solid", line_color="#3a3f5c")
-                    fig_sec.update_layout(
-                        height=300, paper_bgcolor="#070711", plot_bgcolor="#0d0d1a",
-                        font=dict(color="#7a84a8", family="JetBrains Mono", size=10),
-                        margin=dict(l=20, r=20, t=20, b=20),
-                        showlegend=False, yaxis_title="1W Change %"
-                    )
-                    fig_sec.update_xaxes(gridcolor="#1e1e36", tickangle=45)
-                    fig_sec.update_yaxes(gridcolor="#1e1e36")
-                    st.plotly_chart(fig_sec, use_container_width=True)
-
-                    with st.expander("📖 Cara Baca Sector Momentum"):
-                        st.markdown("""
-                        **Sector Rotation** adalah strategi institusional — dana besar masuk ke sektor tertentu secara bergilir.
-                        Dengan mengikuti sektor yang sedang hot, peluang profit jauh lebih besar.
-
-                        **Cara menggunakan:**
-                        1. Lihat sektor dengan rank #1-#3 dan perubahan 1W positif → ini sektor hot
-                        2. Dari scanner, filter saham di sektor tersebut dengan score tertinggi
-                        3. Kombinasikan dengan RS outperform IHSG → triple confirmation!
-
-                        **Refresh rate:** Data sektor diupdate setiap 30 menit selama session.
-                        """)
-
-            # ──────────────────────────────────────────────────────────
-        with tab_foreign:
-
-            # ──────────────────────────────────────────────────────────
-            with tab_foreign:
-                st.markdown("### 🌏 FOREIGN FLOW ANALYSIS")
-                st.caption("Track arus dana investor asing — penggerak utama saham big cap IDX")
-
-                rti_loaded = bool(st.session_state.get('rti_data'))
-                if rti_loaded:
-                    st.success(f"📡 Data REAL dari RTI/IDX — {len(st.session_state['rti_data'])} saham")
-                else:
-                    st.warning("⚠️ Menggunakan estimasi volume-based (RTI tidak tersedia). Data real butuh koneksi ke RTI Business.")
-                st.divider()
-
-                stocks = st.session_state.get('stocks', [])
-                if not stocks:
-                    st.info("Jalankan scan terlebih dahulu untuk melihat analisa foreign flow")
-                else:
-                    total_net_buy  = sum(s.get("net_foreign_flow", 0) for s in stocks if s.get("net_foreign_flow", 0) > 0)
-                    total_net_sell = abs(sum(s.get("net_foreign_flow", 0) for s in stocks if s.get("net_foreign_flow", 0) < 0))
-                    net_buy_count  = sum(1 for s in stocks if s.get("net_foreign_flow", 0) > 0)
-                    net_sell_count = sum(1 for s in stocks if s.get("net_foreign_flow", 0) < 0)
-
-                    col_f1, col_f2, col_f3, col_f4 = st.columns(4)
-                    metric_card(col_f1, "🟢 Net Buy",     f"Rp {total_net_buy:,.0f}",  "#00ff88")
-                    metric_card(col_f2, "🔴 Net Sell",    f"Rp {total_net_sell:,.0f}", "#ff4444")
-                    metric_card(col_f3, "Saham Net Buy",  net_buy_count,               "#00ff88")
-                    metric_card(col_f4, "Saham Net Sell", net_sell_count,              "#ff4444")
-
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    st.divider()
-
-                    col_ff_left, col_ff_right = st.columns(2)
-                    with col_ff_left:
-                        st.markdown("**🟢 TOP 10 FOREIGN NET BUY**")
-                        for s in sorted([s for s in stocks if s.get("net_foreign_flow", 0) > 0],
-                                         key=lambda x: x.get("net_foreign_flow", 0), reverse=True)[:10]:
-                            ff = s.get("foreign", {})
-                            src_badge = "📡" if s.get("foreign_data_source","") != "estimated" else "📊"
-                            st.markdown(f"""
-                            <div class='info-row'>
-                                <span style='color:#e0e8ff;font-weight:bold'>{s['ticker']} {src_badge}</span>
-                                <span>
-                                    <span style='color:#00ff88'>+Rp {s.get('net_foreign_flow',0):,.0f}</span>
-                                    <span style='color:#4a6a8a;font-size:0.8rem'> Str:{ff.get('flow_strength',50):.0f}</span>
-                                </span>
-                            </div>
-                            """, unsafe_allow_html=True)
-
-                    with col_ff_right:
-                        st.markdown("**🔴 TOP 10 FOREIGN NET SELL**")
-                        for s in sorted([s for s in stocks if s.get("net_foreign_flow", 0) < 0],
-                                         key=lambda x: x.get("net_foreign_flow", 0))[:10]:
-                            ff = s.get("foreign", {})
-                            src_badge = "📡" if s.get("foreign_data_source","") != "estimated" else "📊"
-                            st.markdown(f"""
-                            <div class='info-row'>
-                                <span style='color:#e0e8ff;font-weight:bold'>{s['ticker']} {src_badge}</span>
-                                <span>
-                                    <span style='color:#ff4444'>-Rp {abs(s.get('net_foreign_flow',0)):,.0f}</span>
-                                    <span style='color:#4a6a8a;font-size:0.8rem'> Str:{ff.get('flow_strength',50):.0f}</span>
-                                </span>
-                            </div>
-                            """, unsafe_allow_html=True)
-
-                    st.divider()
-                    st.markdown("**⚡ FOREIGN DIVERGENCE (HARGA TURUN TAPI FOREIGN BUY)**")
-                    divergence_stocks = sorted(
-                        [s for s in stocks if s.get("foreign", {}).get("divergence", False)],
-                        key=lambda x: x.get("foreign", {}).get("flow_strength", 0), reverse=True
-                    )
-                    if divergence_stocks:
-                        for s in divergence_stocks[:8]:
-                            ff = s.get("foreign", {})
-                            st.markdown(
-                                f"<span style='background:#00ff8811;border:1px solid #00ff8833;color:#00ff88;"
-                                f"border-radius:4px;padding:3px 10px;font-size:0.8rem;margin:3px;display:inline-block'>"
-                                f"⚡ {s['ticker']} ({s.get('change',0):+.1f}% · Net:+Rp {s.get('net_foreign_flow',0):,.0f})</span>",
-                                unsafe_allow_html=True)
-                    else:
-                        st.info("Tidak ada foreign divergence signifikan saat ini")
-
-            # ──────────────────────────────────────────────────────────
-        with tab_bandar:
-
-            # ──────────────────────────────────────────────────────────
-            with tab_bandar:
-                st.markdown("### 🐋 BANDARMOLOGI")
-                st.caption("Deteksi akumulasi & distribusi bandar menggunakan CMF, A/D Line, OBV, VWAP")
-                st.divider()
-                stocks = st.session_state.get('stocks', [])
-                if not stocks:
-                    st.info("Jalankan scan terlebih dahulu")
-                else:
-                    bandar_sorted = sorted(stocks, key=lambda x: x.get("bandar",{}).get("bandar_strength",0), reverse=True)
-                    col_ban_left, col_ban_right = st.columns(2)
-                    with col_ban_left:
-                        st.markdown("**🐋 TOP 10 AKUMULASI BANDAR**")
-                        for s in bandar_sorted[:10]:
-                            b  = s.get("bandar", {}); bs = b.get("bandar_strength", 50)
-                            bc = "#00ff88" if bs >= 65 else "#ffd700" if bs >= 45 else "#ff4444"
-                            st.markdown(f"""
-                            <div class='info-row'>
-                                <span style='color:#e0e8ff;font-weight:bold'>{s['ticker']}</span>
-                                <span><span style='color:{bc}'>{bs}/100</span>
-                                <span style='color:#ffd700;font-size:0.8rem'> CMF:{b.get('cmf',0):+.3f}</span></span>
-                            </div>
-                            """, unsafe_allow_html=True)
-                    with col_ban_right:
-                        st.markdown("**🔴 TOP 10 DISTRIBUSI (HINDARI)**")
-                        for s in bandar_sorted[-10:][::-1]:
-                            b = s.get("bandar", {}); bs = b.get("bandar_strength", 50)
-                            st.markdown(f"""
-                            <div class='info-row'>
-                                <span style='color:#e0e8ff;font-weight:bold'>{s['ticker']}</span>
-                                <span><span style='color:#ff4444'>{bs}/100</span>
-                                <span style='color:#ffd700;font-size:0.8rem'> CMF:{b.get('cmf',0):+.3f}</span></span>
-                            </div>
-                            """, unsafe_allow_html=True)
-                    st.divider()
-                    st.markdown("**⚡ DIVERGENCE BULLISH (HARGA TURUN TAPI BANDAR AKUMULASI)**")
-                    divergence = sorted(
-                        [s for s in stocks if s.get("change",0)<0 and
-                         s.get("bandar",{}).get("ad_trend")=="UP" and
-                         s.get("bandar",{}).get("cmf",0)>0],
-                        key=lambda x: x.get("bandar",{}).get("bandar_strength",0), reverse=True
-                    )
-                    if divergence:
-                        for s in divergence[:8]:
-                            b = s.get("bandar", {})
-                            st.markdown(
-                                f"<span style='background:#00ff8811;border:1px solid #00ff8833;color:#00ff88;"
-                                f"border-radius:4px;padding:3px 10px;font-size:0.8rem;margin:3px;display:inline-block'>"
-                                f"⚡ {s['ticker']} ({s['change']:+.1f}% · CMF:{b.get('cmf',0):+.3f} · BS:{b.get('bandar_strength',50)})</span>",
-                                unsafe_allow_html=True)
-                    else:
-                        st.info("Tidak ada divergence signifikan saat ini")
-
-            # ──────────────────────────────────────────────────────────
-            # ✅ IMPROVED TAB: BACKTEST (Entry Next Day Open)
-            # ──────────────────────────────────────────────────────────
-        with tab_patterns_t:
-
-                st.markdown("### 📊 Chart Pattern Recognition")
-                st.markdown("Deteksi otomatis: Double Top/Bottom, Head & Shoulders, Ascending Triangle, Bull Flag, Cup & Handle")
-                st.divider()
-
-                pattern_results = st.session_state.get('pattern_results', {})
-                results = st.session_state.get('results', [])
-
-                if not pattern_results:
-                    st.info("💡 Aktifkan **Chart Pattern** di sidebar, lalu jalankan scan.")
-                    # Manual analysis
-                    st.subheader("🔍 Analisis Pattern Manual")
-                    manual_ticker = st.text_input("Masukkan ticker:", placeholder="BBCA.JK")
-                    if st.button("🔍 Analisis Pattern") and manual_ticker:
-                        with st.spinner("Menganalisis..."):
-                            df_manual = fetch_stock_data(manual_ticker.upper().strip())
-                            if df_manual is not None:
-                                pattern_results = {manual_ticker.upper(): analyze_patterns(df_manual)}
-                                st.session_state['pattern_results'] = pattern_results
-                            else:
-                                st.error("❌ Data tidak tersedia.")
-
-                if pattern_results:
-                    # Summary
-                    all_patterns_flat = []
-                    for ticker, pr in pattern_results.items():
-                        for pat in pr.get('all', []):
-                            all_patterns_flat.append({**pat, 'ticker': ticker})
-
-                    if all_patterns_flat:
-                        bullish_count = sum(1 for p in all_patterns_flat if p['signal'] == 'BULLISH')
-                        bearish_count = sum(1 for p in all_patterns_flat if p['signal'] == 'BEARISH')
-
-                        c1, c2, c3 = st.columns(3)
-                        metric_card(c1, "📊 Total Pattern", len(all_patterns_flat))
-                        metric_card(c2, "🟢 Bullish",       bullish_count, "#00ff88")
-                        metric_card(c3, "🔴 Bearish",       bearish_count, "#ff4444")
-                        st.markdown("<br>", unsafe_allow_html=True)
-
-                    for ticker, pr in pattern_results.items():
-                        best = pr.get('best', {})
-                        all_pats = pr.get('all', [])
-
-                        if not all_pats:
-                            continue
-
-                        with st.expander(
-                            f"{'🟢' if best.get('signal')=='BULLISH' else '🔴'} {ticker} — "
-                            f"{best.get('name', 'No Pattern')} | {pr.get('count', 0)} pattern",
-                            expanded=True
-                        ):
-                            for pat in all_pats:
-                                signal_color = "#00ff88" if pat['signal'] == 'BULLISH' else "#ff4444"
-                                conf_bar = int(pat['confidence'] / 20)
-                                conf_dots = "🟢" * conf_bar + "⚪" * (5 - conf_bar)
-
-                                st.markdown(f"""
-                                <div class='pattern-box' style='margin-bottom:12px;'>
-                                    <div style='display:flex; justify-content:space-between; align-items:center;'>
-                                        <span style='font-size:1.05rem; font-weight:bold; color:{signal_color};'>
-                                            {pat['name']}
-                                        </span>
-                                        <span style='color:#8b949e; font-size:0.85rem;'>
-                                            Sinyal: <b style='color:{signal_color}'>{pat['signal']}</b>
-                                        </span>
-                                    </div>
-                                    <div style='color:#8b949e; font-size:0.85rem; margin:6px 0;'>
-                                        {pat.get('description', '')}
-                                    </div>
-                                    <div style='display:flex; gap:20px; margin-top:8px;'>
-                                        <span>Confidence: {conf_dots} <b style='color:{signal_color};'>
-                                            {pat['confidence']}%</b></span>
-                                        <span style='color:#8b949e;'>
-                                            {'✅ Terkonfirmasi' if pat.get('confirmed') else '⏳ Belum konfirmasi'}
-                                        </span>
-                                    </div>
-                                """, unsafe_allow_html=True)
-
-                                # Price levels
-                                pl = pat.get('price_levels', {})
-                                if pl:
-                                    lvl_str = " | ".join(f"<b>{k.replace('_',' ').title()}</b>: Rp {v:,.0f}"
-                                                         for k, v in pl.items() if isinstance(v, (int, float)))
-                                    st.markdown(f"<div style='color:#8b949e; font-size:0.82rem;'>{lvl_str}</div>",
-                                                unsafe_allow_html=True)
-                                st.markdown("</div>", unsafe_allow_html=True)
-
-
-            # ════════════════════════════════════════════════════════════
-            # TAB 3 — AI CONFIDENCE
-            # ════════════════════════════════════════════════════════════
-        with tab_ai_conf_t:
-
-                st.markdown("### 🤖 AI Signal Confidence")
-                st.markdown(
-                    "Model Machine Learning (Random Forest) dilatih dari data historis 180 hari "
-                    "untuk memprediksi probabilitas breakout berhasil."
-                )
-                st.divider()
-
-                if not SKLEARN_AVAILABLE:
-                    st.error("❌ **scikit-learn belum terinstall!**\n\nJalankan: `pip install scikit-learn`")
-                else:
-                    ml_results = st.session_state.get('ml_results', {})
-
-                    if not ml_results:
-                        st.info("💡 Aktifkan **AI Confidence** di sidebar, lalu jalankan scan.")
-
-                        # Manual AI
-                        st.subheader("🔍 Analisis AI Manual")
-                        ai_ticker = st.text_input("Masukkan ticker:", placeholder="BBCA.JK", key="ai_ticker")
-                        if st.button("🤖 Analisis AI") and ai_ticker:
-                            with st.spinner("Training model & prediksi..."):
-                                df_ai = fetch_stock_data(ai_ticker.upper().strip(), days=200)
-                                if df_ai is not None:
-                                    ai_r = predict_confidence(
-                                        ai_ticker.upper(), df_ai, st.session_state['ml_cache'])
-                                    ml_results = {ai_ticker.upper(): ai_r}
-                                else:
-                                    st.error("❌ Data tidak tersedia.")
-
-                    if ml_results:
-                        # Sort by confidence
-                        sorted_ml = sorted(ml_results.items(),
-                                            key=lambda x: x[1].get('confidence', 0), reverse=True)
-
-                        # Summary
-                        available = [(t, r) for t, r in sorted_ml if r.get('available')]
-                        if available:
-                            avg_conf = sum(r['confidence'] for _, r in available) / len(available)
-                            high_conf = sum(1 for _, r in available if r['confidence'] >= 70)
-                            c1, c2, c3 = st.columns(3)
-                            metric_card(c1, "📊 Dianalisis", len(available))
-                            metric_card(c2, "🟢 High Conf (≥70%)", high_conf, "#00ff88")
-                            metric_card(c3, "📈 Avg Confidence", f"{avg_conf:.0f}%",
-                                        "#00ff88" if avg_conf >= 60 else "#ffd700")
-                            st.markdown("<br>", unsafe_allow_html=True)
-
-                        for ticker, ml in sorted_ml:
-                            if not ml.get('available'):
-                                continue
-
-                            conf  = ml['confidence']
-                            color = ml['color']
-                            conf_bar_filled = int(conf / 10)
-
-                            with st.expander(f"🤖 {ticker} — {ml['label']} | {conf}% Confidence"):
-                                col_a, col_b = st.columns([2, 1])
-
-                                with col_a:
-                                    st.markdown(f"""
-                                    <div class='ai-box'>
-                                        <div style='font-size:1.1rem; font-weight:bold; color:{color};
-                                                    margin-bottom:10px;'>{ml['label']}</div>
-                                        <div style='display:flex; align-items:center; gap:10px; margin-bottom:10px;'>
-                                            <div style='flex:1; background:#30363d; border-radius:6px;
-                                                        height:16px; overflow:hidden;'>
-                                                <div style='width:{conf}%; background:{color}; height:100%;
-                                                            border-radius:6px;'></div>
-                                            </div>
-                                            <span style='color:{color}; font-size:1.2rem;
-                                                         font-weight:bold;'>{conf}%</span>
-                                        </div>
-                                        <div style='color:#8b949e; font-size:0.85rem;'>
-                                            CV Accuracy Model: <b style='color:#e6edf3;'>{ml.get('accuracy', 0):.1f}%</b> |
-                                            Training data: <b style='color:#e6edf3;'>{ml.get('n_samples', 0)} sampel</b>
-                                        </div>
-                                    </div>""", unsafe_allow_html=True)
-
-                                with col_b:
-                                    st.markdown("**Top Features:**")
-                                    for feat_name, imp in ml.get('feat_importance', []):
-                                        imp_pct = int(imp * 100)
-                                        st.markdown(f"""
-                                        <div style='margin:4px 0;'>
-                                            <div style='color:#8b949e; font-size:0.78rem;'>{feat_name}</div>
-                                            <div style='background:#30363d; border-radius:4px; height:6px;'>
-                                                <div style='width:{imp_pct*5}%; background:#1f6feb;
-                                                            height:100%; border-radius:4px;'></div>
-                                            </div>
-                                        </div>""", unsafe_allow_html=True)
-
-
-            # ════════════════════════════════════════════════════════════
-            # TAB 4 — NEWS SENTIMENT
-            # ════════════════════════════════════════════════════════════
-        with tab_news_t:
-
-                st.markdown("### 📰 News Sentiment Analysis")
-                st.markdown("Analisis sentimen berita terbaru dari Yahoo Finance untuk setiap saham.")
-                st.divider()
-
-                sentiment_results = st.session_state.get('sentiment_results', {})
-
-                if not sentiment_results:
-                    st.info("💡 Aktifkan **News Sentiment** di sidebar, lalu jalankan scan.")
-                    # Manual news
-                    st.subheader("🔍 Cari Berita Manual")
-                    news_ticker = st.text_input("Ticker:", placeholder="BBCA.JK", key="news_ticker")
-                    if st.button("📰 Ambil Berita") and news_ticker:
-                        with st.spinner("Mengambil berita..."):
-                            sentiment_results = {news_ticker.upper(): analyze_news_sentiment(news_ticker.upper())}
-                            st.session_state['sentiment_results'] = sentiment_results
-
-                if sentiment_results:
-                    for ticker, sent in sentiment_results.items():
-                        if not sent.get('available'):
-                            st.warning(f"📭 {ticker}: Berita tidak tersedia")
-                            continue
-
-                        color = sent['color']
-                        with st.expander(
-                            f"📰 {ticker} — {sent['label']} | Skor {sent['avg_score']:.0f}/100 | "
-                            f"{sent['article_count']} artikel",
-                            expanded=True
-                        ):
-                            c1, c2, c3, c4 = st.columns(4)
-                            metric_card(c1, "📊 Skor Sentimen", f"{sent['avg_score']:.0f}/100", color)
-                            metric_card(c2, "😊 Positif", sent['pos_articles'], "#00ff88")
-                            metric_card(c3, "😟 Negatif", sent['neg_articles'], "#ff4444")
-                            metric_card(c4, "😐 Netral",  sent['neutral_articles'], "#ffd700")
-
-                            st.markdown("<br>", unsafe_allow_html=True)
-
-                            for article in sent.get('articles', []):
-                                art_sent  = article.get('sentiment', {})
-                                art_color = art_sent.get('color', '#8b949e')
-                                art_label = art_sent.get('label', '')
-                                hours_ago = article.get('hours_ago', 999)
-                                time_str  = f"{hours_ago}j lalu" if hours_ago < 24 else article.get('published', '')
-
-                                st.markdown(f"""
-                                <div class='news-box'>
-                                    <div style='display:flex; justify-content:space-between;'>
-                                        <span style='color:{art_color}; font-size:0.8rem;
-                                                     font-weight:bold;'>{art_label}</span>
-                                        <span style='color:#8b949e; font-size:0.78rem;'>🕐 {time_str}</span>
-                                    </div>
-                                    <div style='color:#e6edf3; margin:4px 0; font-size:0.9rem;'>
-                                        {article['title'][:120]}
-                                    </div>
-                                    <div style='color:#8b949e; font-size:0.78rem;'>
-                                        Skor: <b style='color:{art_color};'>{art_sent.get('score', 0):.0f}</b>/100
-                                    </div>
-                                </div>""", unsafe_allow_html=True)
-
-
-            # ════════════════════════════════════════════════════════════
-            # TAB 5 — BANDARMOLOGI
-            # ════════════════════════════════════════════════════════════
-        with tab_backtest:
-
-                st.markdown("### 🔬 BACKTEST STRATEGI v2.0")
-                st.caption("Entry di OPEN hari berikutnya (realistis) · RSI Wilder · MACD Full Series")
-
-                st.info("""
-                **✅ Perbaikan Backtest v2.0:**
-                - **Entry = Open hari BERIKUTNYA** (bukan close sinyal — lebih realistis!)
-                - **RSI Wilder's Smoothing** (sama seperti TradingView)
-                - **MACD Full Series** (tidak terpotong lagi)
-                """)
-                st.divider()
-
-                col_bt1, col_bt2, col_bt3 = st.columns([2, 1, 1])
-                with col_bt1: bt_ticker = st.text_input("Ticker untuk Backtest:", value="BBCA")
-                with col_bt2: bt_days   = st.selectbox("Periode:", [30, 60, 90, 180], index=1,
-                                                        format_func=lambda x: f"{x} hari")
-                with col_bt3: bt_mode   = st.selectbox("Mode:", ["Single Saham", "Multi Saham"])
-
-                if st.button("▶️ Jalankan Backtest", type="primary", use_container_width=True):
-                    bt_tickers = parse_tickers(bt_ticker)
-                    if bt_tickers:
-                        if bt_mode == "Single Saham":
-                            with st.spinner(f"⏳ Backtest {bt_tickers[0]}..."):
-                                bt_result = run_backtest(bt_tickers[0], bt_days)
-                                if bt_result and bt_result["total_trades"] > 0:
-                                    st.success(f"Entry method: **{bt_result['entry_method']}**")
-                                    col_m1,col_m2,col_m3,col_m4,col_m5,col_m6 = st.columns(6)
-                                    metric_card(col_m1, "Total Trade", bt_result["total_trades"])
-                                    metric_card(col_m2, "✅ Win",      bt_result["win_count"],  "#00ff88")
-                                    metric_card(col_m3, "❌ Loss",     bt_result["loss_count"], "#ff4444")
-                                    metric_card(col_m4, "🎯 Win Rate", f"{bt_result['win_rate']}%", "#ffd700")
-                                    metric_card(col_m5, "📈 Avg P&L",  f"{bt_result['avg_pnl']:+.1f}%",
-                                                "#00ff88" if bt_result['avg_pnl'] > 0 else "#ff4444")
-                                    metric_card(col_m6, "⏱️ Avg Hold", f"{bt_result['avg_days_held']}hr", "#8b949e")
-
-                                    st.markdown("<br>", unsafe_allow_html=True)
-                                    col_bt_a,col_bt_b,col_bt_c,col_bt_d = st.columns(4)
-                                    metric_card(col_bt_a, "Best Trade",    f"+{bt_result['best']}%",   "#00ff88")
-                                    metric_card(col_bt_b, "Worst Trade",   f"{bt_result['worst']}%",   "#ff4444")
-                                    metric_card(col_bt_c, "Profit Factor", bt_result["profit_factor"], "#ffd700")
-                                    metric_card(col_bt_d, "TP Hit", f"{bt_result['tp_hit']}/{bt_result['total_trades']}", "#7dff6b")
-
-                                    st.plotly_chart(create_backtest_chart(bt_result), use_container_width=True)
-
-                                    st.markdown("**📋 Riwayat Trade (20 terakhir)**")
-                                    st.dataframe(pd.DataFrame([{
-                                        "#":           i+1,
-                                        "Entry Date":  str(t["entry_date"])[:10],
-                                        "Exit Date":   str(t["exit_date"])[:10],
-                                        "Entry Rp":    fmt_price(t["entry"]),
-                                        "Exit Rp":     fmt_price(t["exit_price"]),
-                                        "P&L":         f"{t['pnl_pct']:+.2f}%",
-                                        "Outcome":     t["outcome"],
-                                        "Hold":        f"{t['days_held']}hr",
-                                        "RSI Entry":   t["rsi"],
-                                    } for i, t in enumerate(bt_result["trades"])]),
-                                    use_container_width=True, hide_index=True)
-
-                                    wr = bt_result["win_rate"]; pf = bt_result["profit_factor"]
-                                    vc = "#00ff88" if wr >= 55 and pf >= 1.5 else "#ffd700" if wr >= 45 else "#ff4444"
-                                    vt = ("✅ Sistem Profitable!" if wr >= 55 and pf >= 1.5
-                                          else "⚡ Moderat" if wr >= 45 else "⚠️ Perlu Perbaikan")
-                                    st.markdown(f"""
-                                    <div class='verdict-banner' style='background:{vc}0d;border:1px solid {vc}55;color:{vc}'>
-                                        {vt} · Win Rate: {wr}% · Profit Factor: {pf}
-                                    </div>
-                                    """, unsafe_allow_html=True)
-                                else:
-                                    st.warning("⚠️ Tidak cukup sinyal terdeteksi di periode ini")
-                        else:
-                            all_bt = []
-                            pb_bt  = st.progress(0)
-                            for i, t in enumerate(bt_tickers[:15]):
-                                pb_bt.progress((i+1)/min(len(bt_tickers),15), f"Backtest {t}...")
-                                r = run_backtest(t, bt_days)
-                                if r: all_bt.append(r)
-                            pb_bt.empty()
-                            if all_bt:
-                                st.dataframe(pd.DataFrame([{
-                                    "Ticker":        r["ticker"],
-                                    "Entry Method":  r.get("entry_method",""),
-                                    "Total Trade":   r["total_trades"],
-                                    "Win Rate (%)":  r["win_rate"],
-                                    "Avg P&L (%)":   r["avg_pnl"],
-                                    "Best (%)":      f"+{r['best']}",
-                                    "Worst (%)":     f"{r['worst']}",
-                                    "Profit Factor": r["profit_factor"],
-                                    "TP Hit":        r["tp_hit"],
-                                    "SL Hit":        r["sl_hit"],
-                                } for r in all_bt]), use_container_width=True, hide_index=True)
-
-            # ──────────────────────────────────────────────────────────
-        with tab_leaderboard_t:
-
-                st.markdown("### 🏆 Leaderboard Saham Terbaik")
-                st.markdown("Peringkat saham berdasarkan skor breakout tertinggi dan konsistensi per minggu.")
-                st.divider()
-
-                all_weeks = get_all_weeks()
-                week_options = ["Minggu Ini"] + [f"Minggu {w}" for w in all_weeks[1:]]
-
-                c_lb1, c_lb2 = st.columns([2, 1])
-                with c_lb1:
-                    selected_week_label = st.selectbox("Pilih Minggu:", week_options)
-                with c_lb2:
-                    top_n = st.number_input("Tampilkan Top:", min_value=5, max_value=20, value=10)
-
-                selected_wk = None if selected_week_label == "Minggu Ini" else \
-                              all_weeks[week_options.index(selected_week_label) - 1]
-
-                lb = get_weekly_leaderboard(selected_wk, top_n)
-
-                if lb['empty']:
-                    st.info("📊 Belum ada data leaderboard. Jalankan scan beberapa kali untuk mengisi leaderboard.")
-                else:
-                    st.markdown(f"**📅 Periode: {lb['week_label']}** | Total saham muncul: {lb['total']}")
-                    st.markdown("<br>", unsafe_allow_html=True)
-
-                    # Top 3 podium
-                    stocks = lb['stocks']
-                    if len(stocks) >= 3:
-                        p1, p2, p3 = st.columns(3)
-                        podium = [
-                            (p1, stocks[0], "#ffd700", "🥇"),
-                            (p2, stocks[1], "#c0c0c0", "🥈"),
-                            (p3, stocks[2], "#cd7f32", "🥉"),
-                        ]
-                        for col, s, color, medal in podium:
-                            with col:
-                                pc = s.get('price_change', 0)
-                                pc_color = "#00ff88" if pc >= 0 else "#ff4444"
-                                st.markdown(f"""
-                                <div class='metric-box' style='border-color:{color}; padding:18px;'>
-                                    <div style='font-size:1.8rem;'>{medal}</div>
-                                    <div style='color:{color}; font-size:1.3rem; font-weight:bold;'>
-                                        {s['ticker']}</div>
-                                    <div style='color:#e6edf3; font-size:1.1rem;'>Skor {s['best_score']}</div>
-                                    <div style='color:#8b949e; font-size:0.8rem;'>Muncul {s['appearances']}x</div>
-                                    <div style='color:{pc_color}; font-size:0.85rem;'>{pc:+.1f}% sejak deteksi</div>
-                                </div>""", unsafe_allow_html=True)
-
-                    st.markdown("<br>", unsafe_allow_html=True)
-
-                    # Tabel lengkap
-                    df_lb = get_leaderboard_dataframe(selected_wk)
-                    if not df_lb.empty:
-                        st.dataframe(df_lb, use_container_width=True, hide_index=True)
-
-                    st.divider()
-
-                    # Multi-week comparison
-                    st.subheader("📊 Konsistensi Lintas Minggu")
-                    df_mw = get_multi_week_comparison()
-                    if not df_mw.empty:
-                        st.dataframe(df_mw, use_container_width=True, hide_index=True)
-                    else:
-                        st.info("Butuh data dari beberapa minggu untuk perbandingan.")
-
-
-            # ════════════════════════════════════════════════════════════
-            # TAB 7 — WATCHLIST
-            # ════════════════════════════════════════════════════════════
-        with tab_watchlist:
-
-            # ──────────────────────────────────────────────────────────
-            with tab_watchlist:
-                st.markdown("### 👀 WATCHLIST")
-                st.divider()
-                with st.form("add_watchlist_form"):
-                    c1, c2, c3 = st.columns([2, 2, 1])
-                    with c1: wl_ticker = st.text_input("Ticker:", placeholder="BBCA").upper()
-                    with c2: wl_note   = st.text_input("Catatan:", placeholder="Breakout resistance")
-                    with c3: wl_alert  = st.number_input("Alert Price:", min_value=0.0, value=0.0)
-                    if st.form_submit_button("➕ Tambah", use_container_width=True):
-                        if wl_ticker:
-                            add_to_watchlist(wl_ticker, wl_note, wl_alert if wl_alert > 0 else None)
-                            st.success(f"✅ {wl_ticker} ditambahkan!"); st.rerun()
-                st.divider()
                 wl = get_watchlist()
-                if not wl:
-                    st.info("Watchlist kosong.")
+                if selected_ticker in wl:
+                    if st.button("❌ Hapus dari Watchlist", use_container_width=True):
+                        remove_from_watchlist(selected_ticker); st.rerun()
                 else:
-                    st.success(f"📋 {len(wl)} saham di watchlist")
-                    current_prices_wl = {s["ticker"]: s for s in st.session_state.get('stocks', [])}
-                    for ticker, data in wl.items():
-                        scan_data = current_prices_wl.get(ticker, {})
-                        price     = scan_data.get("price")    if scan_data else data.get("last_price")
-                        score     = scan_data.get("score")    if scan_data else data.get("last_score")
-                        category  = scan_data.get("category") if scan_data else data.get("last_category")
-                        change    = scan_data.get("change")   if scan_data else None
-                        rs_score  = scan_data.get("rs_score") if scan_data else None
-                        sc_color  = "#00ff88" if (score or 0) >= 65 else "#ffd700" if (score or 0) >= 45 else "#8b949e"
-                        ch_color  = "#00ff88" if (change or 0) >= 0 else "#ff4444"
-                        ch_str    = f"{change:+.1f}%" if change is not None else ""
-                        with st.expander(f"👀 {ticker} | {category or 'Belum di-scan'}"):
-                            c1, c2 = st.columns([3, 1])
-                            with c1:
-                                if score:
-                                    st.markdown(f"**Score:** <span style='color:{sc_color};'>{score}/100</span>",
-                                                unsafe_allow_html=True)
-                                if rs_score:
-                                    rs_c = "#00ff88" if rs_score > 50 else "#ff4444"
-                                    st.markdown(f"**RS vs IHSG:** <span style='color:{rs_c};'>{rs_score:.0f}/100</span>",
-                                                unsafe_allow_html=True)
-                                if price:
-                                    st.markdown(f"**Harga:** {fmt_price(price)} "
-                                                f"<span style='color:{ch_color};'>{ch_str}</span>",
-                                                unsafe_allow_html=True)
-                                if data.get("note"):       st.markdown(f"**📝 Catatan:** {data['note']}")
-                                if data.get("alert_price"):
-                                    status = "✅ Tercapai!" if price and price >= data['alert_price'] else "⏳"
-                                    st.markdown(f"**🔔 Alert Price:** {fmt_price(data['alert_price'])} — {status}")
-                                st.markdown(f"**📅 Ditambahkan:** {data.get('added_at','')[:16]}")
-                            with c2:
-                                if st.button("❌ Hapus", key=f"rm_{ticker}", use_container_width=True):
-                                    remove_from_watchlist(ticker); st.rerun()
-                                if st.button("📊 Scan", key=f"scan_{ticker}", use_container_width=True):
-                                    with st.spinner(f"Scanning {ticker}..."):
-                                        ihsg = st.session_state.get('ihsg_closes')
-                                        sm   = st.session_state.get('sector_momentum')
-                                        rd   = st.session_state.get('rti_data')
-                                        res  = fetch_batch([ticker], ihsg, sm, rd)
-                                        if res and res[0]:
-                                            add_to_watchlist(ticker, data.get("note",""),
-                                                             data.get("alert_price"), res[0])
-                                            st.success(f"Score: {res[0]['score']}/100"); st.rerun()
+                    if st.button("👀 Tambah ke Watchlist", use_container_width=True):
+                        add_to_watchlist(selected_ticker, scan_result=stock_data); st.rerun()
 
-            # ──────────────────────────────────────────────────────────
-        with tab_portfolio:
+    # ──────────────────────────────────────────────────────────
+    # ✅ NEW TAB: RELATIVE STRENGTH vs IHSG
+    # ──────────────────────────────────────────────────────────
+    with tab_rs:
+        st.markdown("### 📈 RELATIVE STRENGTH vs IHSG")
+        st.caption("Saham yang outperform IHSG = lebih kuat dari market = kandidat terbaik untuk trading")
+        st.divider()
 
-            # ──────────────────────────────────────────────────────────
-            with tab_portfolio:
-                st.markdown("### 💼 PORTFOLIO TRACKER")
-                st.caption("Catat posisi trading dan pantau P&L secara real-time")
-                st.divider()
+        stocks = st.session_state.get('stocks', [])
+        if not stocks:
+            st.info("Jalankan scan terlebih dahulu")
+        else:
+            outperformers  = sorted([s for s in stocks if s.get("rs_score", 50) > 55],
+                                   key=lambda x: x.get("rs_score", 50), reverse=True)
+            neutrals       = [s for s in stocks if 45 <= s.get("rs_score", 50) <= 55]
+            underperformers = sorted([s for s in stocks if s.get("rs_score", 50) < 45],
+                                     key=lambda x: x.get("rs_score", 50))
 
-                current_prices = {s["ticker"]: s["price"] for s in st.session_state.get('stocks', [])}
-                summary = get_portfolio_summary(current_prices)
-                stats   = get_portfolio_stats()
+            col_rs1, col_rs2, col_rs3, col_rs4 = st.columns(4)
+            metric_card(col_rs1, "⭐ Outperform (>55)", len(outperformers), "#00ff88")
+            metric_card(col_rs2, "➡️ Netral (45–55)",   len(neutrals),       "#ffd700")
+            metric_card(col_rs3, "⬇️ Underperform (<45)", len(underperformers), "#ff4444")
+            avg_rs = np.mean([s.get("rs_score",50) for s in stocks]) if stocks else 50
+            metric_card(col_rs4, "Avg RS Score", f"{avg_rs:.1f}", "#00c8ff")
 
-                pnl_color = "#00ff88" if summary["total_pnl"] >= 0 else "#ff4444"
-                col_p1, col_p2, col_p3, col_p4 = st.columns(4)
-                metric_card(col_p1, "💰 Total Modal",    fmt_price(summary["total_modal"]))
-                metric_card(col_p2, "📊 Nilai Sekarang", fmt_price(summary["total_value"]))
-                metric_card(col_p3, "💹 Total P&L",      fmt_price(summary["total_pnl"]),     pnl_color)
-                metric_card(col_p4, "📈 P&L %",          f"{summary['total_pnl_pct']:+.2f}%", pnl_color)
+            st.divider()
+            col_left, col_right = st.columns(2)
 
-                st.markdown("<br>", unsafe_allow_html=True)
-                with st.expander("➕ TAMBAH POSISI BARU", expanded=(len(summary['positions']) == 0)):
-                    with st.form("add_position_form"):
-                        col_a1, col_a2, col_a3, col_a4 = st.columns(4)
-                        with col_a1: pos_ticker = st.text_input("Ticker:", placeholder="BBCA").upper()
-                        with col_a2: pos_lot    = st.number_input("Lot:", min_value=1, value=1)
-                        with col_a3: pos_entry  = st.number_input("Harga Entry (Rp):", min_value=1, value=1000)
-                        with col_a4: pos_sl     = st.number_input("Stop Loss:", min_value=0, value=0)
-                        pos_tp   = st.number_input("Take Profit:", min_value=0, value=0)
-                        pos_note = st.text_input("Catatan:", placeholder="Alasan entry...")
-                        if st.form_submit_button("➕ Tambah Posisi", use_container_width=True):
-                            if pos_ticker:
-                                add_position(pos_ticker, pos_lot, pos_entry,
-                                             pos_sl if pos_sl > 0 else None,
-                                             pos_tp if pos_tp > 0 else None, pos_note)
-                                st.success(f"✅ Posisi {pos_ticker} ditambahkan!")
-                                st.rerun()
+            with col_left:
+                st.markdown("**⭐ TOP 15 OUTPERFORM IHSG**")
+                for s in outperformers[:15]:
+                    rs_score = s.get("rs_score", 50)
+                    rs_1m    = s.get("rs_1m", 0)
+                    rs_3m    = s.get("rs_3m", 0)
+                    rt       = s.get("rs_trend","")
+                    trend_icon = "📈" if rt == "IMPROVING" else "📉" if rt == "WEAKENING" else "➡️"
+                    st.markdown(f"""
+                    <div class='info-row'>
+                        <span style='color:#e0e8ff;font-weight:bold'>{s['ticker']}</span>
+                        <span>
+                            <span style='color:#00ff88'>RS:{rs_score:.0f}</span>
+                            <span style='color:#ffd700;font-size:0.8rem'> 1M:{rs_1m:+.1f}%</span>
+                            <span style='color:#7a84a8;font-size:0.8rem'> 3M:{rs_3m:+.1f}%</span>
+                            <span style='font-size:0.8rem'> {trend_icon}</span>
+                        </span>
+                    </div>
+                    """, unsafe_allow_html=True)
 
-                st.divider()
-                st.markdown("### 📊 POSISI AKTIF")
-                if not summary['positions']:
-                    st.info("Belum ada posisi aktif.")
+            with col_right:
+                st.markdown("**⬇️ TOP 15 UNDERPERFORM (HINDARI)**")
+                for s in underperformers[:15]:
+                    rs_score = s.get("rs_score", 50)
+                    rs_1m    = s.get("rs_1m", 0)
+                    rt       = s.get("rs_trend","")
+                    trend_icon = "📈" if rt == "IMPROVING" else "📉" if rt == "WEAKENING" else "➡️"
+                    st.markdown(f"""
+                    <div class='info-row'>
+                        <span style='color:#e0e8ff;font-weight:bold'>{s['ticker']}</span>
+                        <span>
+                            <span style='color:#ff4444'>RS:{rs_score:.0f}</span>
+                            <span style='color:#ffd700;font-size:0.8rem'> 1M:{rs_1m:+.1f}%</span>
+                            <span style='font-size:0.8rem'> {trend_icon}</span>
+                        </span>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            st.divider()
+            st.markdown("**🚀 RS IMPROVING — Momentum Meningkat vs IHSG**")
+            improving = sorted([s for s in stocks if s.get("rs_trend") == "IMPROVING"],
+                               key=lambda x: x.get("rs_score",0), reverse=True)
+            if improving:
+                for s in improving[:10]:
+                    st.markdown(
+                        f"<span style='background:#00ff8811;border:1px solid #00ff8833;color:#00ff88;"
+                        f"border-radius:4px;padding:3px 10px;font-size:0.8rem;margin:3px;display:inline-block'>"
+                        f"📈 {s['ticker']} (RS:{s.get('rs_score',50):.0f} · 1M:{s.get('rs_1m',0):+.1f}%)</span>",
+                        unsafe_allow_html=True)
+            else:
+                st.info("Tidak ada saham dengan RS improving signifikan")
+
+            st.divider()
+            # RS Score distribution chart
+            st.markdown("**📊 Distribusi RS Score**")
+            rs_scores = [s.get("rs_score", 50) for s in stocks]
+            fig_rs = go.Figure()
+            fig_rs.add_trace(go.Histogram(
+                x=rs_scores, nbinsx=20,
+                marker_color=[("#00ff88" if x > 50 else "#ff4444") for x in rs_scores],
+                opacity=0.8
+            ))
+            fig_rs.add_vline(x=50, line_dash="dash", line_color="#ffd700",
+                             annotation_text="IHSG Benchmark (50)")
+            fig_rs.update_layout(
+                height=280, paper_bgcolor="#070711", plot_bgcolor="#0d0d1a",
+                font=dict(color="#7a84a8", family="JetBrains Mono", size=10),
+                margin=dict(l=20, r=20, t=20, b=20),
+                xaxis_title="RS Score", yaxis_title="Jumlah Saham"
+            )
+            fig_rs.update_xaxes(gridcolor="#1e1e36")
+            fig_rs.update_yaxes(gridcolor="#1e1e36")
+            st.plotly_chart(fig_rs, use_container_width=True)
+
+            with st.expander("📖 Cara Membaca RS vs IHSG"):
+                st.markdown("""
+                **Relative Strength (RS) vs IHSG** mengukur seberapa kuat pergerakan saham dibandingkan benchmark (IHSG).
+
+                **RS Score > 50** → Saham lebih kuat dari IHSG (outperform) — *kandidat utama untuk trading*
+                **RS Score < 50** → Saham lebih lemah dari IHSG (underperform) — *hindari atau kurangi exposure*
+
+                **RS Trend:**
+                - **IMPROVING** → RS sedang naik = momentum membaik = sinyal positif kuat
+                - **WEAKENING** → RS sedang turun = momentum melemah = waspada
+                - **STABLE** → RS stabil
+
+                **Kenapa RS Penting?**
+                Saham yang outperform IHSG saat market naik, dan outperform saat market turun (turun lebih sedikit),
+                adalah saham paling sehat untuk di-trading. Institutional investor selalu prefer saham-saham ini.
+                """)
+
+    # ──────────────────────────────────────────────────────────
+    # ✅ NEW TAB: SECTOR MOMENTUM
+    # ──────────────────────────────────────────────────────────
+    with tab_sector:
+        st.markdown("### 🏭 SECTOR MOMENTUM ANALYSIS")
+        st.caption("Rotasi sektor real-time — ikuti sektor yang sedang hot untuk maximise profit")
+        st.divider()
+
+        sm = st.session_state.get("sector_momentum", {})
+        if not sm:
+            st.info("Klik **🚀 MULAI SCAN** untuk memuat data sector momentum")
+            if st.button("🔄 Load Sector Momentum Saja", use_container_width=True):
+                with st.spinner("Memuat sector momentum..."):
+                    sm = get_sector_momentum()
+                    st.session_state['sector_momentum'] = sm
+                    st.rerun()
+        else:
+            sorted_sectors = sorted(sm.items(), key=lambda x: x[1]["score"], reverse=True)
+
+            # Heatmap sektor
+            st.markdown("**🌡️ SECTOR HEATMAP**")
+            cols = st.columns(4)
+            for i, (sec_name, sec_info) in enumerate(sorted_sectors):
+                chg  = sec_info.get("change_1w", 0)
+                sc   = sec_info.get("score", 50)
+                rank = sec_info.get("rank", i + 1)
+                bg   = f"rgba(0,232,122,{min(0.25, chg/10 + 0.05)})" if chg > 0 else \
+                       f"rgba(255,61,90,{min(0.25, abs(chg)/10 + 0.05)})"
+                bc   = "#00ff88" if chg > 1 else "#7dff6b" if chg > 0 else \
+                       "#ff9944" if chg > -1 else "#ff4444"
+                with cols[i % 4]:
+                    st.markdown(f"""
+                    <div style='background:{bg};border:1px solid {bc}44;border-radius:8px;
+                    padding:12px;text-align:center;margin:3px;'>
+                        <div style='font-family:"JetBrains Mono",monospace;font-size:0.55rem;
+                        color:var(--text-muted);letter-spacing:1px'>#{rank}</div>
+                        <div style='font-family:"Syne",sans-serif;font-size:0.85rem;
+                        font-weight:800;color:{bc}'>{sec_name}</div>
+                        <div style='font-family:"JetBrains Mono",monospace;font-size:0.8rem;
+                        color:{bc};font-weight:700;margin-top:2px'>{chg:+.2f}%</div>
+                        <div style='font-family:"JetBrains Mono",monospace;font-size:0.62rem;
+                        color:var(--text-muted)'>{sec_info.get("trend","")}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            st.divider()
+            # Table detail
+            st.markdown("**📊 DETAIL SECTOR PERFORMANCE**")
+            sec_table = []
+            for sec_name, sec_info in sorted_sectors:
+                stocks_in_sec = [s for s in st.session_state.get('stocks', [])
+                                 if s.get("sector") == sec_name]
+                avg_score = np.mean([s.get("score",0) for s in stocks_in_sec]) if stocks_in_sec else 0
+                top_stock = max(stocks_in_sec, key=lambda x: x.get("score",0)).get("ticker","") if stocks_in_sec else "-"
+                sec_table.append({
+                    "Rank":       sec_info.get("rank", "-"),
+                    "Sektor":     sec_name,
+                    "Trend":      sec_info.get("trend",""),
+                    "1W Change":  f"{sec_info.get('change_1w',0):+.2f}%",
+                    "1M Change":  f"{sec_info.get('change_1m',0):+.2f}%",
+                    "Score":      f"{sec_info.get('score',50):.1f}/100",
+                    "Avg Stock Score": f"{avg_score:.0f}" if avg_score else "-",
+                    "Top Stock":  top_stock,
+                })
+            st.dataframe(pd.DataFrame(sec_table), use_container_width=True, hide_index=True)
+
+            st.divider()
+            # Bar chart momentum
+            st.markdown("**📊 Sector 1-Week Performance**")
+            sec_names = [s[0] for s in sorted_sectors]
+            sec_chgs  = [s[1].get("change_1w",0) for s in sorted_sectors]
+            colors    = ["#00ff88" if c > 0 else "#ff4444" for c in sec_chgs]
+            fig_sec = go.Figure(go.Bar(
+                x=sec_names, y=sec_chgs, marker_color=colors,
+                text=[f"{c:+.2f}%" for c in sec_chgs], textposition="outside",
+                opacity=0.85
+            ))
+            fig_sec.add_hline(y=0, line_dash="solid", line_color="#3a3f5c")
+            fig_sec.update_layout(
+                height=300, paper_bgcolor="#070711", plot_bgcolor="#0d0d1a",
+                font=dict(color="#7a84a8", family="JetBrains Mono", size=10),
+                margin=dict(l=20, r=20, t=20, b=20),
+                showlegend=False, yaxis_title="1W Change %"
+            )
+            fig_sec.update_xaxes(gridcolor="#1e1e36", tickangle=45)
+            fig_sec.update_yaxes(gridcolor="#1e1e36")
+            st.plotly_chart(fig_sec, use_container_width=True)
+
+            with st.expander("📖 Cara Baca Sector Momentum"):
+                st.markdown("""
+                **Sector Rotation** adalah strategi institusional — dana besar masuk ke sektor tertentu secara bergilir.
+                Dengan mengikuti sektor yang sedang hot, peluang profit jauh lebih besar.
+
+                **Cara menggunakan:**
+                1. Lihat sektor dengan rank #1-#3 dan perubahan 1W positif → ini sektor hot
+                2. Dari scanner, filter saham di sektor tersebut dengan score tertinggi
+                3. Kombinasikan dengan RS outperform IHSG → triple confirmation!
+
+                **Refresh rate:** Data sektor diupdate setiap 30 menit selama session.
+                """)
+
+    # ──────────────────────────────────────────────────────────
+    # TAB: FOREIGN FLOW
+    # ──────────────────────────────────────────────────────────
+    with tab_foreign:
+        st.markdown("### 🌏 FOREIGN FLOW ANALYSIS")
+        st.caption("Track arus dana investor asing — penggerak utama saham big cap IDX")
+
+        rti_loaded = bool(st.session_state.get('rti_data'))
+        if rti_loaded:
+            st.success(f"📡 Data REAL dari RTI/IDX — {len(st.session_state['rti_data'])} saham")
+        else:
+            st.warning("⚠️ Menggunakan estimasi volume-based (RTI tidak tersedia). Data real butuh koneksi ke RTI Business.")
+        st.divider()
+
+        stocks = st.session_state.get('stocks', [])
+        if not stocks:
+            st.info("Jalankan scan terlebih dahulu untuk melihat analisa foreign flow")
+        else:
+            total_net_buy  = sum(s.get("net_foreign_flow", 0) for s in stocks if s.get("net_foreign_flow", 0) > 0)
+            total_net_sell = abs(sum(s.get("net_foreign_flow", 0) for s in stocks if s.get("net_foreign_flow", 0) < 0))
+            net_buy_count  = sum(1 for s in stocks if s.get("net_foreign_flow", 0) > 0)
+            net_sell_count = sum(1 for s in stocks if s.get("net_foreign_flow", 0) < 0)
+
+            col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+            metric_card(col_f1, "🟢 Net Buy",     f"Rp {total_net_buy:,.0f}",  "#00ff88")
+            metric_card(col_f2, "🔴 Net Sell",    f"Rp {total_net_sell:,.0f}", "#ff4444")
+            metric_card(col_f3, "Saham Net Buy",  net_buy_count,               "#00ff88")
+            metric_card(col_f4, "Saham Net Sell", net_sell_count,              "#ff4444")
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.divider()
+
+            col_ff_left, col_ff_right = st.columns(2)
+            with col_ff_left:
+                st.markdown("**🟢 TOP 10 FOREIGN NET BUY**")
+                for s in sorted([s for s in stocks if s.get("net_foreign_flow", 0) > 0],
+                                 key=lambda x: x.get("net_foreign_flow", 0), reverse=True)[:10]:
+                    ff = s.get("foreign", {})
+                    src_badge = "📡" if s.get("foreign_data_source","") != "estimated" else "📊"
+                    st.markdown(f"""
+                    <div class='info-row'>
+                        <span style='color:#e0e8ff;font-weight:bold'>{s['ticker']} {src_badge}</span>
+                        <span>
+                            <span style='color:#00ff88'>+Rp {s.get('net_foreign_flow',0):,.0f}</span>
+                            <span style='color:#4a6a8a;font-size:0.8rem'> Str:{ff.get('flow_strength',50):.0f}</span>
+                        </span>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            with col_ff_right:
+                st.markdown("**🔴 TOP 10 FOREIGN NET SELL**")
+                for s in sorted([s for s in stocks if s.get("net_foreign_flow", 0) < 0],
+                                 key=lambda x: x.get("net_foreign_flow", 0))[:10]:
+                    ff = s.get("foreign", {})
+                    src_badge = "📡" if s.get("foreign_data_source","") != "estimated" else "📊"
+                    st.markdown(f"""
+                    <div class='info-row'>
+                        <span style='color:#e0e8ff;font-weight:bold'>{s['ticker']} {src_badge}</span>
+                        <span>
+                            <span style='color:#ff4444'>-Rp {abs(s.get('net_foreign_flow',0)):,.0f}</span>
+                            <span style='color:#4a6a8a;font-size:0.8rem'> Str:{ff.get('flow_strength',50):.0f}</span>
+                        </span>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            st.divider()
+            st.markdown("**⚡ FOREIGN DIVERGENCE (HARGA TURUN TAPI FOREIGN BUY)**")
+            divergence_stocks = sorted(
+                [s for s in stocks if s.get("foreign", {}).get("divergence", False)],
+                key=lambda x: x.get("foreign", {}).get("flow_strength", 0), reverse=True
+            )
+            if divergence_stocks:
+                for s in divergence_stocks[:8]:
+                    ff = s.get("foreign", {})
+                    st.markdown(
+                        f"<span style='background:#00ff8811;border:1px solid #00ff8833;color:#00ff88;"
+                        f"border-radius:4px;padding:3px 10px;font-size:0.8rem;margin:3px;display:inline-block'>"
+                        f"⚡ {s['ticker']} ({s.get('change',0):+.1f}% · Net:+Rp {s.get('net_foreign_flow',0):,.0f})</span>",
+                        unsafe_allow_html=True)
+            else:
+                st.info("Tidak ada foreign divergence signifikan saat ini")
+
+    # ──────────────────────────────────────────────────────────
+    # TAB: BANDARMOLOGI
+    # ──────────────────────────────────────────────────────────
+    with tab_bandar:
+        st.markdown("### 🐋 BANDARMOLOGI")
+        st.caption("Deteksi akumulasi & distribusi bandar menggunakan CMF, A/D Line, OBV, VWAP")
+        st.divider()
+        stocks = st.session_state.get('stocks', [])
+        if not stocks:
+            st.info("Jalankan scan terlebih dahulu")
+        else:
+            bandar_sorted = sorted(stocks, key=lambda x: x.get("bandar",{}).get("bandar_strength",0), reverse=True)
+            col_ban_left, col_ban_right = st.columns(2)
+            with col_ban_left:
+                st.markdown("**🐋 TOP 10 AKUMULASI BANDAR**")
+                for s in bandar_sorted[:10]:
+                    b  = s.get("bandar", {}); bs = b.get("bandar_strength", 50)
+                    bc = "#00ff88" if bs >= 65 else "#ffd700" if bs >= 45 else "#ff4444"
+                    st.markdown(f"""
+                    <div class='info-row'>
+                        <span style='color:#e0e8ff;font-weight:bold'>{s['ticker']}</span>
+                        <span><span style='color:{bc}'>{bs}/100</span>
+                        <span style='color:#ffd700;font-size:0.8rem'> CMF:{b.get('cmf',0):+.3f}</span></span>
+                    </div>
+                    """, unsafe_allow_html=True)
+            with col_ban_right:
+                st.markdown("**🔴 TOP 10 DISTRIBUSI (HINDARI)**")
+                for s in bandar_sorted[-10:][::-1]:
+                    b = s.get("bandar", {}); bs = b.get("bandar_strength", 50)
+                    st.markdown(f"""
+                    <div class='info-row'>
+                        <span style='color:#e0e8ff;font-weight:bold'>{s['ticker']}</span>
+                        <span><span style='color:#ff4444'>{bs}/100</span>
+                        <span style='color:#ffd700;font-size:0.8rem'> CMF:{b.get('cmf',0):+.3f}</span></span>
+                    </div>
+                    """, unsafe_allow_html=True)
+            st.divider()
+            st.markdown("**⚡ DIVERGENCE BULLISH (HARGA TURUN TAPI BANDAR AKUMULASI)**")
+            divergence = sorted(
+                [s for s in stocks if s.get("change",0)<0 and
+                 s.get("bandar",{}).get("ad_trend")=="UP" and
+                 s.get("bandar",{}).get("cmf",0)>0],
+                key=lambda x: x.get("bandar",{}).get("bandar_strength",0), reverse=True
+            )
+            if divergence:
+                for s in divergence[:8]:
+                    b = s.get("bandar", {})
+                    st.markdown(
+                        f"<span style='background:#00ff8811;border:1px solid #00ff8833;color:#00ff88;"
+                        f"border-radius:4px;padding:3px 10px;font-size:0.8rem;margin:3px;display:inline-block'>"
+                        f"⚡ {s['ticker']} ({s['change']:+.1f}% · CMF:{b.get('cmf',0):+.3f} · BS:{b.get('bandar_strength',50)})</span>",
+                        unsafe_allow_html=True)
+            else:
+                st.info("Tidak ada divergence signifikan saat ini")
+
+    # ──────────────────────────────────────────────────────────
+    # ✅ IMPROVED TAB: BACKTEST (Entry Next Day Open)
+    # ──────────────────────────────────────────────────────────
+    with tab_backtest:
+        st.markdown("### 🔬 BACKTEST STRATEGI v2.0")
+        st.caption("Entry di OPEN hari berikutnya (realistis) · RSI Wilder · MACD Full Series")
+
+        st.info("""
+        **✅ Perbaikan Backtest v2.0:**
+        - **Entry = Open hari BERIKUTNYA** (bukan close sinyal — lebih realistis!)
+        - **RSI Wilder's Smoothing** (sama seperti TradingView)
+        - **MACD Full Series** (tidak terpotong lagi)
+        """)
+        st.divider()
+
+        col_bt1, col_bt2, col_bt3 = st.columns([2, 1, 1])
+        with col_bt1: bt_ticker = st.text_input("Ticker untuk Backtest:", value="BBCA")
+        with col_bt2: bt_days   = st.selectbox("Periode:", [30, 60, 90, 180], index=1,
+                                                format_func=lambda x: f"{x} hari")
+        with col_bt3: bt_mode   = st.selectbox("Mode:", ["Single Saham", "Multi Saham"])
+
+        if st.button("▶️ Jalankan Backtest", type="primary", use_container_width=True):
+            bt_tickers = parse_tickers(bt_ticker)
+            if bt_tickers:
+                if bt_mode == "Single Saham":
+                    with st.spinner(f"⏳ Backtest {bt_tickers[0]}..."):
+                        bt_result = run_backtest(bt_tickers[0], bt_days)
+                        if bt_result and bt_result["total_trades"] > 0:
+                            st.success(f"Entry method: **{bt_result['entry_method']}**")
+                            col_m1,col_m2,col_m3,col_m4,col_m5,col_m6 = st.columns(6)
+                            metric_card(col_m1, "Total Trade", bt_result["total_trades"])
+                            metric_card(col_m2, "✅ Win",      bt_result["win_count"],  "#00ff88")
+                            metric_card(col_m3, "❌ Loss",     bt_result["loss_count"], "#ff4444")
+                            metric_card(col_m4, "🎯 Win Rate", f"{bt_result['win_rate']}%", "#ffd700")
+                            metric_card(col_m5, "📈 Avg P&L",  f"{bt_result['avg_pnl']:+.1f}%",
+                                        "#00ff88" if bt_result['avg_pnl'] > 0 else "#ff4444")
+                            metric_card(col_m6, "⏱️ Avg Hold", f"{bt_result['avg_days_held']}hr", "#8b949e")
+
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            col_bt_a,col_bt_b,col_bt_c,col_bt_d = st.columns(4)
+                            metric_card(col_bt_a, "Best Trade",    f"+{bt_result['best']}%",   "#00ff88")
+                            metric_card(col_bt_b, "Worst Trade",   f"{bt_result['worst']}%",   "#ff4444")
+                            metric_card(col_bt_c, "Profit Factor", bt_result["profit_factor"], "#ffd700")
+                            metric_card(col_bt_d, "TP Hit", f"{bt_result['tp_hit']}/{bt_result['total_trades']}", "#7dff6b")
+
+                            st.plotly_chart(create_backtest_chart(bt_result), use_container_width=True)
+
+                            st.markdown("**📋 Riwayat Trade (20 terakhir)**")
+                            st.dataframe(pd.DataFrame([{
+                                "#":           i+1,
+                                "Entry Date":  str(t["entry_date"])[:10],
+                                "Exit Date":   str(t["exit_date"])[:10],
+                                "Entry Rp":    fmt_price(t["entry"]),
+                                "Exit Rp":     fmt_price(t["exit_price"]),
+                                "P&L":         f"{t['pnl_pct']:+.2f}%",
+                                "Outcome":     t["outcome"],
+                                "Hold":        f"{t['days_held']}hr",
+                                "RSI Entry":   t["rsi"],
+                            } for i, t in enumerate(bt_result["trades"])]),
+                            use_container_width=True, hide_index=True)
+
+                            wr = bt_result["win_rate"]; pf = bt_result["profit_factor"]
+                            vc = "#00ff88" if wr >= 55 and pf >= 1.5 else "#ffd700" if wr >= 45 else "#ff4444"
+                            vt = ("✅ Sistem Profitable!" if wr >= 55 and pf >= 1.5
+                                  else "⚡ Moderat" if wr >= 45 else "⚠️ Perlu Perbaikan")
+                            st.markdown(f"""
+                            <div class='verdict-banner' style='background:{vc}0d;border:1px solid {vc}55;color:{vc}'>
+                                {vt} · Win Rate: {wr}% · Profit Factor: {pf}
+                            </div>
+                            """, unsafe_allow_html=True)
+                        else:
+                            st.warning("⚠️ Tidak cukup sinyal terdeteksi di periode ini")
                 else:
-                    for pos in summary['positions']:
-                        pnl_rp  = (pos["curr"] - pos["entry"]) * pos["lembar"]
-                        pnl_pct = round(pnl_rp / pos["modal"] * 100, 2)
-                        pnl_c   = "#00ff88" if pnl_pct >= 0 else "#ff4444"
-                        sl_warn = pos.get("sl") and pos["curr"] <= pos["sl"] * 1.02
-                        tp_hit  = pos.get("tp") and pos["curr"] >= pos["tp"] * 0.98
-                        icon    = "🚨" if sl_warn else "🎯" if tp_hit else "📈" if pnl_pct >= 0 else "📉"
-                        with st.expander(f"{icon} {pos['ticker']} | {pos['lot']} lot | P&L: {pnl_pct:+.2f}%"):
-                            c1, c2, c3 = st.columns(3)
-                            with c1:
-                                st.metric("Entry",      fmt_price(pos["entry"]))
-                                st.metric("Harga Skrg", fmt_price(pos["curr"]), f"{pnl_pct:+.2f}%")
-                            with c2:
-                                st.metric("P&L (Rp)",   fmt_price(pnl_rp))
-                                st.metric("Modal",      fmt_price(pos["modal"]))
-                            with c3:
-                                if pos.get("sl"): st.metric("Stop Loss",   fmt_price(pos["sl"]))
-                                if pos.get("tp"): st.metric("Take Profit", fmt_price(pos["tp"]))
-                            if sl_warn: st.error("🚨 HARGA MENDEKATI STOP LOSS!")
-                            if tp_hit:  st.success("🎯 HARGA MENDEKATI TAKE PROFIT!")
-                            exit_price = st.number_input("Harga Jual:", min_value=1, value=int(pos["curr"]),
-                                                         key=f"exit_{pos['ticker']}")
-                            if st.button(f"💰 Tutup Posisi", key=f"close_{pos['ticker']}", use_container_width=True):
-                                result = close_position(pos['ticker'], exit_price)
-                                if result:
-                                    st.success(f"✅ Ditutup! P&L: {result['pnl_pct']:+.2f}%")
-                                    st.rerun()
-
-                if stats['total_trades'] > 0:
-                    st.divider()
-                    st.markdown("### 📊 STATISTIK TRADING")
-                    col_s1, col_s2, col_s3, col_s4 = st.columns(4)
-                    metric_card(col_s1, "Total Trade", stats['total_trades'])
-                    metric_card(col_s2, "Win Rate",    f"{stats['win_rate']}%",
-                                "#00ff88" if stats['win_rate'] >= 50 else "#ff4444")
-                    metric_card(col_s3, "Best Trade",  f"+{stats['best_trade']}%", "#00ff88")
-                    metric_card(col_s4, "Worst Trade", f"{stats['worst_trade']}%", "#ff4444")
-                    closed = get_closed_trades()
-                    if closed:
+                    all_bt = []
+                    pb_bt  = st.progress(0)
+                    for i, t in enumerate(bt_tickers[:15]):
+                        pb_bt.progress((i+1)/min(len(bt_tickers),15), f"Backtest {t}...")
+                        r = run_backtest(t, bt_days)
+                        if r: all_bt.append(r)
+                    pb_bt.empty()
+                    if all_bt:
                         st.dataframe(pd.DataFrame([{
-                            "Ticker": t["ticker"], "Entry Date": t["date"][:10],
-                            "Exit Date": t["exit_date"][:10],
-                            "Entry Rp": fmt_price(t["entry"]), "Exit Rp": fmt_price(t["exit"]),
-                            "P&L": f"{t['pnl_pct']:+.2f}%", "P&L Rp": fmt_price(t["pnl_rp"]),
-                            "Outcome": t["outcome"],
-                        } for t in closed[-20:]]), use_container_width=True, hide_index=True)
-                        if st.button("🗑️ Hapus Riwayat"):
-                            st.session_state.closed_trades = []; st.rerun()
+                            "Ticker":        r["ticker"],
+                            "Entry Method":  r.get("entry_method",""),
+                            "Total Trade":   r["total_trades"],
+                            "Win Rate (%)":  r["win_rate"],
+                            "Avg P&L (%)":   r["avg_pnl"],
+                            "Best (%)":      f"+{r['best']}",
+                            "Worst (%)":     f"{r['worst']}",
+                            "Profit Factor": r["profit_factor"],
+                            "TP Hit":        r["tp_hit"],
+                            "SL Hit":        r["sl_hit"],
+                        } for r in all_bt]), use_container_width=True, hide_index=True)
 
-            # ──────────────────────────────────────────────────────────
-        with tab_ai_analyst:
+    # ──────────────────────────────────────────────────────────
+    # TAB: PORTFOLIO
+    # ──────────────────────────────────────────────────────────
+    with tab_portfolio:
+        st.markdown("### 💼 PORTFOLIO TRACKER")
+        st.caption("Catat posisi trading dan pantau P&L secara real-time")
+        st.divider()
 
-            # ──────────────────────────────────────────────────────────
-            with tab_ai:
-                st.markdown("### 🤖 AI ANALYST v2.0")
-                st.caption("Analisis dengan konteks RS vs IHSG + Sector Momentum + RSI Wilder + MACD Fix")
-                st.divider()
-                if not st.session_state.get('groq_api_key'):
-                    st.warning("⚠️ Set GROQ_API_KEY di environment (gratis di console.groq.com)")
-                else:
-                    stocks = st.session_state.get('stocks', [])
-                    if not stocks:
-                        st.info("Jalankan scan terlebih dahulu")
-                    else:
-                        ticker_options = [s.get("ticker", "") for s in stocks[:30]]
-                        ai_ticker = st.selectbox("Pilih saham:", ticker_options)
-                        if ai_ticker:
-                            stock_data = next((s for s in stocks if s.get("ticker") == ai_ticker), None)
-                            if stock_data:
-                                col_ai1,col_ai2,col_ai3,col_ai4 = st.columns(4)
-                                metric_card(col_ai1, "Harga",       fmt_price(stock_data.get("price",0)))
-                                metric_card(col_ai2, "Score",       f"{stock_data.get('score',0)}/100")
-                                metric_card(col_ai3, "RS vs IHSG",  f"{stock_data.get('rs_score',50):.0f}/100",
-                                            "#00ff88" if stock_data.get('rs_outperform') else "#ff4444")
-                                metric_card(col_ai4, "Sektor Rank", f"#{stock_data.get('sec_rank',7)}/13")
-                                if st.button("🤖 Generate AI Analysis", type="primary", use_container_width=True):
-                                    with st.spinner("AI sedang menganalisa..."):
-                                        analysis = get_ai_analysis(stock_data, st.session_state['groq_api_key'])
-                                        st.markdown(f"<div class='ai-output'>{analysis}</div>", unsafe_allow_html=True)
+        current_prices = {s["ticker"]: s["price"] for s in st.session_state.get('stocks', [])}
+        summary = get_portfolio_summary(current_prices)
+        stats   = get_portfolio_stats()
 
+        pnl_color = "#00ff88" if summary["total_pnl"] >= 0 else "#ff4444"
+        col_p1, col_p2, col_p3, col_p4 = st.columns(4)
+        metric_card(col_p1, "💰 Total Modal",    fmt_price(summary["total_modal"]))
+        metric_card(col_p2, "📊 Nilai Sekarang", fmt_price(summary["total_value"]))
+        metric_card(col_p3, "💹 Total P&L",      fmt_price(summary["total_pnl"]),     pnl_color)
+        metric_card(col_p4, "📈 P&L %",          f"{summary['total_pnl_pct']:+.2f}%", pnl_color)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        with st.expander("➕ TAMBAH POSISI BARU", expanded=(len(summary['positions']) == 0)):
+            with st.form("add_position_form"):
+                col_a1, col_a2, col_a3, col_a4 = st.columns(4)
+                with col_a1: pos_ticker = st.text_input("Ticker:", placeholder="BBCA").upper()
+                with col_a2: pos_lot    = st.number_input("Lot:", min_value=1, value=1)
+                with col_a3: pos_entry  = st.number_input("Harga Entry (Rp):", min_value=1, value=1000)
+                with col_a4: pos_sl     = st.number_input("Stop Loss:", min_value=0, value=0)
+                pos_tp   = st.number_input("Take Profit:", min_value=0, value=0)
+                pos_note = st.text_input("Catatan:", placeholder="Alasan entry...")
+                if st.form_submit_button("➕ Tambah Posisi", use_container_width=True):
+                    if pos_ticker:
+                        add_position(pos_ticker, pos_lot, pos_entry,
+                                     pos_sl if pos_sl > 0 else None,
+                                     pos_tp if pos_tp > 0 else None, pos_note)
+                        st.success(f"✅ Posisi {pos_ticker} ditambahkan!")
+                        st.rerun()
+
+        st.divider()
+        st.markdown("### 📊 POSISI AKTIF")
+        if not summary['positions']:
+            st.info("Belum ada posisi aktif.")
+        else:
+            for pos in summary['positions']:
+                pnl_rp  = (pos["curr"] - pos["entry"]) * pos["lembar"]
+                pnl_pct = round(pnl_rp / pos["modal"] * 100, 2)
+                pnl_c   = "#00ff88" if pnl_pct >= 0 else "#ff4444"
+                sl_warn = pos.get("sl") and pos["curr"] <= pos["sl"] * 1.02
+                tp_hit  = pos.get("tp") and pos["curr"] >= pos["tp"] * 0.98
+                icon    = "🚨" if sl_warn else "🎯" if tp_hit else "📈" if pnl_pct >= 0 else "📉"
+                with st.expander(f"{icon} {pos['ticker']} | {pos['lot']} lot | P&L: {pnl_pct:+.2f}%"):
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        st.metric("Entry",      fmt_price(pos["entry"]))
+                        st.metric("Harga Skrg", fmt_price(pos["curr"]), f"{pnl_pct:+.2f}%")
+                    with c2:
+                        st.metric("P&L (Rp)",   fmt_price(pnl_rp))
+                        st.metric("Modal",      fmt_price(pos["modal"]))
+                    with c3:
+                        if pos.get("sl"): st.metric("Stop Loss",   fmt_price(pos["sl"]))
+                        if pos.get("tp"): st.metric("Take Profit", fmt_price(pos["tp"]))
+                    if sl_warn: st.error("🚨 HARGA MENDEKATI STOP LOSS!")
+                    if tp_hit:  st.success("🎯 HARGA MENDEKATI TAKE PROFIT!")
+                    exit_price = st.number_input("Harga Jual:", min_value=1, value=int(pos["curr"]),
+                                                 key=f"exit_{pos['ticker']}")
+                    if st.button(f"💰 Tutup Posisi", key=f"close_{pos['ticker']}", use_container_width=True):
+                        result = close_position(pos['ticker'], exit_price)
+                        if result:
+                            st.success(f"✅ Ditutup! P&L: {result['pnl_pct']:+.2f}%")
+                            st.rerun()
+
+        if stats['total_trades'] > 0:
+            st.divider()
+            st.markdown("### 📊 STATISTIK TRADING")
+            col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+            metric_card(col_s1, "Total Trade", stats['total_trades'])
+            metric_card(col_s2, "Win Rate",    f"{stats['win_rate']}%",
+                        "#00ff88" if stats['win_rate'] >= 50 else "#ff4444")
+            metric_card(col_s3, "Best Trade",  f"+{stats['best_trade']}%", "#00ff88")
+            metric_card(col_s4, "Worst Trade", f"{stats['worst_trade']}%", "#ff4444")
+            closed = get_closed_trades()
+            if closed:
+                st.dataframe(pd.DataFrame([{
+                    "Ticker": t["ticker"], "Entry Date": t["date"][:10],
+                    "Exit Date": t["exit_date"][:10],
+                    "Entry Rp": fmt_price(t["entry"]), "Exit Rp": fmt_price(t["exit"]),
+                    "P&L": f"{t['pnl_pct']:+.2f}%", "P&L Rp": fmt_price(t["pnl_rp"]),
+                    "Outcome": t["outcome"],
+                } for t in closed[-20:]]), use_container_width=True, hide_index=True)
+                if st.button("🗑️ Hapus Riwayat"):
+                    st.session_state.closed_trades = []; st.rerun()
+
+    # ──────────────────────────────────────────────────────────
+    # TAB: WATCHLIST
+    # ──────────────────────────────────────────────────────────
+    with tab_watchlist:
+        st.markdown("### 👀 WATCHLIST")
+        st.divider()
+        with st.form("add_watchlist_form"):
+            c1, c2, c3 = st.columns([2, 2, 1])
+            with c1: wl_ticker = st.text_input("Ticker:", placeholder="BBCA").upper()
+            with c2: wl_note   = st.text_input("Catatan:", placeholder="Breakout resistance")
+            with c3: wl_alert  = st.number_input("Alert Price:", min_value=0.0, value=0.0)
+            if st.form_submit_button("➕ Tambah", use_container_width=True):
+                if wl_ticker:
+                    add_to_watchlist(wl_ticker, wl_note, wl_alert if wl_alert > 0 else None)
+                    st.success(f"✅ {wl_ticker} ditambahkan!"); st.rerun()
+        st.divider()
+        wl = get_watchlist()
+        if not wl:
+            st.info("Watchlist kosong.")
+        else:
+            st.success(f"📋 {len(wl)} saham di watchlist")
+            current_prices_wl = {s["ticker"]: s for s in st.session_state.get('stocks', [])}
+            for ticker, data in wl.items():
+                scan_data = current_prices_wl.get(ticker, {})
+                price     = scan_data.get("price")    if scan_data else data.get("last_price")
+                score     = scan_data.get("score")    if scan_data else data.get("last_score")
+                category  = scan_data.get("category") if scan_data else data.get("last_category")
+                change    = scan_data.get("change")   if scan_data else None
+                rs_score  = scan_data.get("rs_score") if scan_data else None
+                sc_color  = "#00ff88" if (score or 0) >= 65 else "#ffd700" if (score or 0) >= 45 else "#8b949e"
+                ch_color  = "#00ff88" if (change or 0) >= 0 else "#ff4444"
+                ch_str    = f"{change:+.1f}%" if change is not None else ""
+                with st.expander(f"👀 {ticker} | {category or 'Belum di-scan'}"):
+                    c1, c2 = st.columns([3, 1])
+                    with c1:
+                        if score:
+                            st.markdown(f"**Score:** <span style='color:{sc_color};'>{score}/100</span>",
+                                        unsafe_allow_html=True)
+                        if rs_score:
+                            rs_c = "#00ff88" if rs_score > 50 else "#ff4444"
+                            st.markdown(f"**RS vs IHSG:** <span style='color:{rs_c};'>{rs_score:.0f}/100</span>",
+                                        unsafe_allow_html=True)
+                        if price:
+                            st.markdown(f"**Harga:** {fmt_price(price)} "
+                                        f"<span style='color:{ch_color};'>{ch_str}</span>",
+                                        unsafe_allow_html=True)
+                        if data.get("note"):       st.markdown(f"**📝 Catatan:** {data['note']}")
+                        if data.get("alert_price"):
+                            status = "✅ Tercapai!" if price and price >= data['alert_price'] else "⏳"
+                            st.markdown(f"**🔔 Alert Price:** {fmt_price(data['alert_price'])} — {status}")
+                        st.markdown(f"**📅 Ditambahkan:** {data.get('added_at','')[:16]}")
+                    with c2:
+                        if st.button("❌ Hapus", key=f"rm_{ticker}", use_container_width=True):
+                            remove_from_watchlist(ticker); st.rerun()
+                        if st.button("📊 Scan", key=f"scan_{ticker}", use_container_width=True):
+                            with st.spinner(f"Scanning {ticker}..."):
+                                ihsg = st.session_state.get('ihsg_closes')
+                                sm   = st.session_state.get('sector_momentum')
+                                rd   = st.session_state.get('rti_data')
+                                res  = fetch_batch([ticker], ihsg, sm, rd)
+                                if res and res[0]:
+                                    add_to_watchlist(ticker, data.get("note",""),
+                                                     data.get("alert_price"), res[0])
+                                    st.success(f"Score: {res[0]['score']}/100"); st.rerun()
+
+    # ──────────────────────────────────────────────────────────
+    # TAB: AI ANALYST
+    # ──────────────────────────────────────────────────────────
+    with tab_ai:
+        st.markdown("### 🤖 AI ANALYST v2.0")
+        st.caption("Analisis dengan konteks RS vs IHSG + Sector Momentum + RSI Wilder + MACD Fix")
+        st.divider()
+        if not st.session_state.get('groq_api_key'):
+            st.warning("⚠️ Set GROQ_API_KEY di environment (gratis di console.groq.com)")
+        else:
+            stocks = st.session_state.get('stocks', [])
+            if not stocks:
+                st.info("Jalankan scan terlebih dahulu")
+            else:
+                ticker_options = [s.get("ticker", "") for s in stocks[:30]]
+                ai_ticker = st.selectbox("Pilih saham:", ticker_options)
+                if ai_ticker:
+                    stock_data = next((s for s in stocks if s.get("ticker") == ai_ticker), None)
+                    if stock_data:
+                        col_ai1,col_ai2,col_ai3,col_ai4 = st.columns(4)
+                        metric_card(col_ai1, "Harga",       fmt_price(stock_data.get("price",0)))
+                        metric_card(col_ai2, "Score",       f"{stock_data.get('score',0)}/100")
+                        metric_card(col_ai3, "RS vs IHSG",  f"{stock_data.get('rs_score',50):.0f}/100",
+                                    "#00ff88" if stock_data.get('rs_outperform') else "#ff4444")
+                        metric_card(col_ai4, "Sektor Rank", f"#{stock_data.get('sec_rank',7)}/13")
+                        if st.button("🤖 Generate AI Analysis", type="primary", use_container_width=True):
+                            with st.spinner("AI sedang menganalisa..."):
+                                analysis = get_ai_analysis(stock_data, st.session_state['groq_api_key'])
+                                st.markdown(f"<div class='ai-output'>{analysis}</div>", unsafe_allow_html=True)
+
+# ============================================================
+# RUN
+# ============================================================
+if __name__ == "__main__":
+    main()
