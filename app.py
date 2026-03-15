@@ -4509,19 +4509,12 @@ defaults = {
     'last_scan_time': None,
     'auto_refresh'  : False,
     'scan_count'    : 0,
-    'notif_sent'    : [],
-    'tg_token'      : config.TELEGRAM_BOT_TOKEN,
-    'tg_chat_id'    : config.TELEGRAM_CHAT_ID,
-    'wa_phone'      : config.WHATSAPP_PHONE,
-    'wa_key'        : config.WHATSAPP_API_KEY,
     'modal'         : 10_000_000,
-    'tickers'       : config.DEFAULT_TICKERS[:10],
+    'tickers'       : ["BBCA","BBRI","BMRI","TLKM","ASII","UNVR","KLBF","ADRO","ANTM","MDKA"],
     'ml_cache'      : {},
     'enable_ml'     : False,
     'enable_pattern': True,
     'enable_sentiment': False,
-    'enable_tg'     : True,
-    'enable_wa'     : False,
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -4827,10 +4820,7 @@ def build_sidebar():
             cfg["fx_minscore"]= st.slider("Min Score",40,90,60,5)
 
         st.divider()
-        with st.expander("🔔 Notifikasi & API"):
-            st.session_state["tg_token"]    = st.text_input("Telegram Token",value=st.session_state.get("tg_token",""),type="password")
-            st.session_state["tg_chat_id"]  = st.text_input("Telegram Chat ID",value=st.session_state.get("tg_chat_id",""))
-            st.session_state["groq_api_key"]= st.text_input("Groq API Key",value=st.session_state.get("groq_api_key",""),type="password")
+
         if st.button("↺ Reset",use_container_width=True):
             for k in ["stocks","ihsg_closes","sector_momentum","rti_data","_a6_bid","_a6_vol","_a6_scanned"]:
                 st.session_state.pop(k,None)
@@ -4842,8 +4832,7 @@ def main():
     init_session_state()
     for k,v in {"results":[],"trade_plans":{},"ml_results":{},"pattern_results":{},
                 "sentiment_results":{},"last_scan_time":None,"auto_refresh":False,
-                "scan_count":0,"notif_sent":[],"tg_token":"","tg_chat_id":"",
-                "wa_phone":"","wa_key":"","modal":10_000_000,"groq_api_key":"",
+                "scan_count":0,"modal":10_000_000,"groq_api_key":"",
                 "_tickers":["BBCA","BBRI","BMRI","TLKM","ASII"],"_mode":"🚀 Breakout IDX",
                 "_watchlist":{},"_portfolio":[],"_closed_trades":[]}.items():
         if k not in st.session_state: st.session_state[k]=v
@@ -6150,11 +6139,11 @@ def main():
         stocks=st.session_state.get("stocks",[])
         (tab_scanner,tab_rs,tab_sector,tab_foreign,tab_bandar,
          tab_patterns_t,tab_ai_conf_t,tab_news_t,tab_backtest,
-         tab_leaderboard_t,tab_watchlist,tab_portfolio,tab_ai_analyst,tab_history_t)=st.tabs([
+         tab_leaderboard_t,tab_watchlist,tab_portfolio,tab_ai_analyst)=st.tabs([
             "📊 Scanner","📈 RS vs IHSG","🏭 Sektor","🌏 Foreign Flow",
             "🐋 Bandarmologi","📊 Chart Pattern","🤖 AI Confidence",
             "📰 Sentimen","🔬 Backtest","🏆 Leaderboard",
-            "👀 Watchlist","💼 Portfolio","🤖 AI Analyst","📋 Notifikasi",
+            "👀 Watchlist","💼 Portfolio","🤖 AI Analyst",
         ])
         with tab_scanner:
 
@@ -7487,38 +7476,3 @@ def main():
                                         analysis = get_ai_analysis(stock_data, st.session_state['groq_api_key'])
                                         st.markdown(f"<div class='ai-output'>{analysis}</div>", unsafe_allow_html=True)
 
-        with tab_history_t:
-
-                st.markdown("### 📋 Riwayat Notifikasi")
-                st.markdown("Log semua sinyal STRONG BREAKOUT yang sudah dikirim.")
-                st.divider()
-
-                notif_history = st.session_state.get('notif_sent', [])
-
-                if not notif_history:
-                    st.markdown("""
-                    <div style='text-align:center; padding:50px; color:#8b949e;'>
-                        <div style='font-size:3rem;'>📭</div>
-                        <h3>Belum ada notifikasi</h3>
-                    </div>""", unsafe_allow_html=True)
-                else:
-                    st.success(f"✅ {len(notif_history)} notifikasi terkirim sesi ini")
-                    df_notif = pd.DataFrame(notif_history)
-                    st.dataframe(df_notif, use_container_width=True, hide_index=True)
-
-                    csv = df_notif.to_csv(index=False).encode('utf-8')
-                    st.download_button("📥 Export Log",
-                        data=csv, file_name=f"notif_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
-
-                    if st.button("🗑️ Hapus Riwayat"):
-                        st.session_state['notif_sent'] = []
-                        st.rerun()
-
-
-
-
-            # ============================================================
-
-# ─── RUN ──────────────────────────────────────────────────────
-if __name__ == "__main__":
-    main()
